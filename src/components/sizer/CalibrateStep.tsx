@@ -80,12 +80,12 @@ export function CalibrateStep({ initial, onSaved, onBack, onContinue }: Props) {
   return (
     <div className="space-y-5">
       <StepHeading title="Calibrate your screen">
-        Match a real card or coin to the dashed outline so millimetres are accurate.
+        So the on-screen ring reflects real-world millimetres on this device.
       </StepHeading>
 
       {initial && saved && (
-        <p className="rounded-lg bg-[var(--accent-soft)] px-3 py-2 text-sm text-[var(--ink)]">
-          ✓ Calibration saved on this device.
+        <p className="rounded-lg bg-[var(--gold-soft)] px-3 py-2 text-sm text-[var(--ink)]">
+          ✓ Calibration saved on this device — recalibrate below or skip ahead.
         </p>
       )}
 
@@ -100,7 +100,7 @@ export function CalibrateStep({ initial, onSaved, onBack, onContinue }: Props) {
             setObjectId(e.target.value as CalibrationObjectId);
             setSaved(false);
           }}
-          className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm outline-none focus:border-[var(--accent)]"
+          className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm text-[var(--ink)] outline-none focus:border-[var(--gold)]"
         >
           {CALIBRATION_OBJECTS.map((o) => (
             <option key={o.id} value={o.id}>
@@ -117,19 +117,39 @@ export function CalibrateStep({ initial, onSaved, onBack, onContinue }: Props) {
         minHeight={Math.max(168, outlinePx + 40)}
       >
         <div className="relative pl-3">
+          <span
+            className="absolute left-0 top-0 h-full w-px bg-[var(--gold)]/45"
+            aria-hidden
+          />
+          <span
+            className="mono absolute -left-0.5 -top-4 text-[10px] text-[#8c7c66]"
+            aria-hidden
+          >
+            0
+          </span>
           {obj.shape === "rect" ? (
             <div
-              className="shrink-0 rounded-md border-2 border-dashed border-[var(--accent-glow)]"
+              className="shrink-0 rounded-md border-2 border-dashed border-[var(--gold-light)]"
               style={{ width: cardWidthPx, height: outlinePx }}
+              aria-label="Credit card outline"
             />
           ) : (
             <div
-              className="shrink-0 rounded-full border-2 border-dashed border-[var(--accent-glow)]"
+              className="shrink-0 rounded-full border-2 border-dashed border-[var(--gold-light)]"
               style={{ width: outlinePx, height: outlinePx }}
+              aria-label="Coin outline"
             />
           )}
         </div>
       </Stage>
+
+      <p className="mono text-center text-[11px] leading-relaxed text-[var(--muted)]">
+        {obj.shape === "rect"
+          ? `Target ${obj.widthMm} × ${obj.heightMm} mm`
+          : `Target ${obj.sizeMm} mm across`}
+        <span className="mx-1.5 text-[var(--gold)]">·</span>
+        Line up the left edge at 0, scroll if it runs past the panel
+      </p>
 
       <div className="flex items-center gap-3">
         <StepperButton label="Decrease scale" onClick={() => nudge(-0.02)}>
@@ -156,18 +176,43 @@ export function CalibrateStep({ initial, onSaved, onBack, onContinue }: Props) {
       <div className="flex items-center justify-between gap-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3">
         <div>
           <p className="mono-label text-[var(--muted)]">Scale</p>
-          <p className="font-[family-name:var(--font-display)] text-2xl font-bold">
+          <p className="font-[family-name:var(--font-display)] text-2xl leading-tight text-[var(--ink)]">
             {scale.toFixed(2)}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={persist}
-          className="mono-label rounded-lg bg-[var(--ink)] px-3 py-2 text-white"
-        >
-          {saved ? "Saved" : "Save"}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setScale(1);
+              setSaved(false);
+            }}
+            className="mono-label rounded-lg border border-[var(--border)] px-3 py-2 text-[var(--muted)] hover:text-[var(--ink)]"
+          >
+            Reset
+          </button>
+          <button
+            type="button"
+            onClick={persist}
+            className="mono-label rounded-lg bg-[var(--ink)] px-3 py-2 text-[var(--bg)] hover:opacity-90"
+          >
+            {saved ? "Saved" : "Save"}
+          </button>
+        </div>
       </div>
+
+      <details className="rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-4 py-3">
+        <summary className="mono-label cursor-pointer text-[var(--ink)]">
+          Tips for accurate calibration
+        </summary>
+        <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-[var(--muted)]">
+          <li>Ensure your browser zoom is 100%.</li>
+          <li>Match the object&apos;s outer edge to the dashed outline.</li>
+          <li>Place the object directly on the screen (no case or sleeve).</li>
+          <li>Use good lighting and look straight on, not at an angle.</li>
+          <li>Re-calibrate if you switch devices.</li>
+        </ul>
+      </details>
 
       <StepNav
         onBack={onBack}

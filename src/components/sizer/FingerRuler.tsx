@@ -39,10 +39,12 @@ export function FingerRuler({
   onResult,
 }: Props) {
   const trackRef = useRef<HTMLDivElement>(null);
+
   const preview = useMemo(
     () => findNearestByCircumference(circumferenceMm),
     [circumferenceMm]
   );
+
   const rulerCssPx = RULER_MM / calibration.mmPerPx;
   const markerLeft = circumferenceMm / calibration.mmPerPx;
 
@@ -61,10 +63,7 @@ export function FingerRuler({
   const nudge = useCallback(
     (delta: number) => {
       onCircumferenceChange(
-        Math.min(
-          RULER_MM,
-          Math.max(MIN_MM, +(circumferenceMm + delta).toFixed(1))
-        )
+        Math.min(RULER_MM, Math.max(MIN_MM, +(circumferenceMm + delta).toFixed(1)))
       );
     },
     [circumferenceMm, onCircumferenceChange]
@@ -87,13 +86,14 @@ export function FingerRuler({
   return (
     <div className="space-y-5">
       <StepHeading title="Measure your finger">
-        Wrap a paper strip, mark it, lay on the ruler from 0.{" "}
+        Wrap a thin strip of paper around your finger, mark where it meets, then
+        lay it on the ruler from 0 and drag the marker to your mark.{" "}
         <button
           type="button"
           onClick={onRecalibrate}
-          className="text-[var(--accent-deep)] underline underline-offset-2"
+          className="text-[var(--gold-deep)] underline underline-offset-2 hover:text-[var(--ink)]"
         >
-          Re-calibrate
+          Re-calibrate screen
         </button>
       </StepHeading>
 
@@ -102,7 +102,11 @@ export function FingerRuler({
         onChange={(m) => m === "ring" && onSwitchRing()}
       />
 
-      <Stage caption="Align the strip at 0 · drag to your mark" align="left" bleed>
+      <Stage
+        caption="Align the strip at 0 · drag to your mark"
+        align="left"
+        bleed
+      >
         <div
           ref={trackRef}
           className="relative h-20 shrink-0 cursor-pointer select-none touch-none"
@@ -118,17 +122,17 @@ export function FingerRuler({
           aria-valuemin={MIN_MM}
           aria-valuemax={RULER_MM}
           aria-valuenow={circumferenceMm}
-          aria-label="Finger circumference"
+          aria-label="Finger circumference in millimetres"
           tabIndex={0}
         >
-          <div className="absolute inset-x-0 top-10 h-px bg-[#8a9aa5]" />
+          <div className="absolute inset-x-0 top-10 h-px bg-[#8c7c66]" />
           {Array.from({ length: RULER_MM + 1 }, (_, i) => {
             const isMajor = i % 10 === 0;
             const isMid = i % 5 === 0;
             return (
               <div
                 key={i}
-                className="absolute top-10 -translate-x-1/2 bg-[#8a9aa5]"
+                className="absolute top-10 -translate-x-1/2 bg-[#8c7c66]"
                 style={{
                   left: i / calibration.mmPerPx,
                   width: 1,
@@ -136,7 +140,7 @@ export function FingerRuler({
                 }}
               >
                 {isMajor && (
-                  <span className="mono absolute -top-5 left-1/2 -translate-x-1/2 text-[10px] text-[#8a9aa5]">
+                  <span className="mono absolute -top-5 left-1/2 -translate-x-1/2 text-[10px] tabular-nums text-[#8c7c66]">
                     {i}
                   </span>
                 )}
@@ -147,8 +151,8 @@ export function FingerRuler({
             className="absolute top-3 z-10 -translate-x-1/2"
             style={{ left: markerLeft }}
           >
-            <div className="h-14 w-0.5 bg-[var(--accent-glow)]" />
-            <div className="accent-fill absolute -top-1.5 left-1/2 h-3 w-3 -translate-x-1/2 rounded-full" />
+            <div className="h-14 w-0.5 bg-[var(--gold-light)]" />
+            <div className="gold-fill absolute -top-1.5 left-1/2 h-3 w-3 -translate-x-1/2 rounded-full ring-2 ring-[var(--stage)]" />
           </div>
         </div>
       </Stage>
@@ -172,17 +176,21 @@ export function FingerRuler({
         </StepperButton>
       </div>
 
-      <div className="flex items-center justify-between rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3">
+      <p className="mono text-center text-[11px] text-[var(--muted)]">
+        Use ← → arrow keys for fine adjustment
+      </p>
+
+      <div className="flex items-center justify-between gap-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3">
         <div>
           <p className="mono-label text-[var(--muted)]">US Size</p>
-          <p className="font-[family-name:var(--font-display)] text-3xl font-bold">
+          <p className="font-[family-name:var(--font-display)] text-3xl leading-tight text-[var(--ink)]">
             {formatUsSize(preview.row.us)}
           </p>
         </div>
-        <p className="mono text-right text-[11px] text-[var(--muted)]">
-          Circ {formatMm(circumferenceMm)} mm
-          <br />
-          Ø {formatMm(circumferenceToDiameter(circumferenceMm), 2)} mm
+        <p className="mono text-right text-[11px] leading-relaxed text-[var(--muted)]">
+          Circumference {formatMm(circumferenceMm)} mm
+          <span className="mx-1.5 text-[var(--gold)]">·</span>
+          Diameter {formatMm(circumferenceToDiameter(circumferenceMm), 2)} mm
         </p>
       </div>
 

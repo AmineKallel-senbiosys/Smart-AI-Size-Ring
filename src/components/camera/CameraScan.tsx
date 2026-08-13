@@ -940,7 +940,7 @@ export function CameraScan() {
                         <button
                           type="button"
                           onClick={finish}
-                          className="accent-fill flex-1 rounded-xl py-3 text-sm font-semibold text-white"
+                          className="gold-fill flex-1 rounded-xl py-3 text-sm font-medium text-[var(--ink)] shadow-[inset_0_1px_0_rgba(255,255,255,0.4)]"
                         >
                           Save size
                         </button>
@@ -1006,7 +1006,7 @@ export function CameraScan() {
                         <button
                           type="button"
                           onClick={finish}
-                          className="accent-fill flex-1 rounded-xl py-3 text-sm font-semibold text-white"
+                          className="gold-fill flex-1 rounded-xl py-3 text-sm font-medium text-[var(--ink)] shadow-[inset_0_1px_0_rgba(255,255,255,0.4)]"
                         >
                           Save size
                         </button>
@@ -1037,7 +1037,7 @@ export function CameraScan() {
             <Badge>AI camera · Card scale</Badge>
             <h1 className="mt-4 font-[family-name:var(--font-display)] text-3xl font-bold leading-tight tracking-tight text-[var(--ink)]">
               Hand left. Card right.
-              <span className="mt-1 block text-[var(--accent)]">
+              <span className="mt-1 block text-[var(--gold-deep)]">
                 AI finds both live.
               </span>
             </h1>
@@ -1060,7 +1060,7 @@ export function CameraScan() {
                   key={t}
                   className="flex items-start gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3.5 py-3"
                 >
-                  <span className="mono flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--accent-soft)] text-xs font-medium text-[var(--accent-deep)]">
+                  <span className="mono flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--gold-soft)] text-xs font-medium text-[var(--gold-deep)]">
                     {i + 1}
                   </span>
                   <span className="text-sm text-[var(--ink)]">{t}</span>
@@ -1071,7 +1071,7 @@ export function CameraScan() {
             <button
               type="button"
               onClick={openCamera}
-              className="accent-fill mt-8 w-full rounded-xl px-5 py-3.5 text-[15px] font-semibold text-white shadow-[0_12px_28px_-14px_rgba(31,122,108,0.9)]"
+              className="gold-fill mt-8 w-full rounded-xl px-5 py-3.5 text-[15px] font-medium text-[var(--ink)] shadow-[inset_0_1px_0_rgba(255,255,255,0.4),0_12px_28px_-14px_rgba(184,147,74,0.55)]"
             >
               Open camera
             </button>
@@ -1095,7 +1095,7 @@ export function CameraScan() {
             </h2>
             <div className="mt-5 rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-6 py-8 text-center">
               <p className="mono-label text-[var(--muted)]">US ring size</p>
-              <p className="mt-2 font-[family-name:var(--font-display)] text-6xl font-extrabold text-[var(--accent)]">
+              <p className="mt-2 font-[family-name:var(--font-display)] text-6xl text-[var(--gold-light)]">
                 {formatUsSize(converted.row.us)}
               </p>
               <p className="mono mt-3 text-[11px] text-[var(--muted)]">
@@ -1138,7 +1138,7 @@ export function CameraScan() {
               <button
                 type="button"
                 onClick={restart}
-                className="accent-fill flex-1 rounded-xl px-4 py-3 text-sm font-semibold text-white"
+                className="gold-fill flex-1 rounded-xl px-4 py-3 text-sm font-medium text-[var(--ink)] shadow-[inset_0_1px_0_rgba(255,255,255,0.4)]"
               >
                 Scan again
               </button>
@@ -1640,7 +1640,7 @@ function Panel({
 }
 
 function Badge({ children }: { children: React.ReactNode }) {
-  return <p className="mono-label text-[var(--accent-deep)]">{children}</p>;
+  return <p className="mono-label text-[var(--gold-deep)]">{children}</p>;
 }
 
 function StepDots({ step }: { step: Step }) {
@@ -1663,7 +1663,7 @@ function StepDots({ step }: { step: Step }) {
                 active
                   ? "bg-[var(--ink)] text-white"
                   : done
-                    ? "bg-[var(--accent)] text-white"
+                    ? "bg-[var(--gold)] text-[var(--ink)]"
                     : "bg-[var(--surface-2)] text-[var(--muted)]"
               }`}
             >

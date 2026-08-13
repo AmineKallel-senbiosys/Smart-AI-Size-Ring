@@ -44,7 +44,7 @@ export function ResultPanel({ mode, valueMm, onAdjust, onRestart }: Props) {
         await navigator.share({ title: "My ring size", text });
         return;
       } catch {
-        /* clipboard */
+        /* fall back to clipboard */
       }
     }
     await navigator.clipboard?.writeText(text);
@@ -55,18 +55,19 @@ export function ResultPanel({ mode, valueMm, onAdjust, onRestart }: Props) {
   return (
     <div className="space-y-5">
       <StepHeading title="Your ring size">
-        Based on your measurement — saved on this device only.
+        Based on your measurement — saved automatically on this device.
       </StepHeading>
 
       <Stage caption="Your measured size">
         <div className="text-center">
-          <p className="mono-label text-[#8a9aa5]">US Ring Size</p>
-          <p className="font-[family-name:var(--font-display)] text-6xl font-extrabold text-[var(--accent-glow)]">
+          <p className="mono-label text-[#8c7c66]">US Ring Size</p>
+          <p className="font-[family-name:var(--font-display)] text-6xl leading-none text-[var(--gold-light)]">
             {formatUsSize(row.us)}
           </p>
-          <p className="mono mt-3 text-[11px] text-[#8a9aa5]">
-            {formatMm(diameterMm, 2)} mm diameter · {formatMm(circumferenceMm)}{" "}
-            mm circumference
+          <p className="mono mt-3 text-[11px] text-[#8c7c66]">
+            {formatMm(diameterMm, 2)} mm diameter
+            <span className="mx-1.5 text-[var(--gold)]">·</span>
+            {formatMm(circumferenceMm)} mm circumference
           </p>
         </div>
       </Stage>
@@ -83,32 +84,36 @@ export function ResultPanel({ mode, valueMm, onAdjust, onRestart }: Props) {
             className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-2 py-3 text-center"
           >
             <p className="mono-label text-[var(--muted)]">{cell.label}</p>
-            <p className="mt-1 font-[family-name:var(--font-display)] text-xl font-bold">
+            <p className="mt-1 font-[family-name:var(--font-display)] text-xl text-[var(--ink)]">
               {cell.value}
             </p>
           </div>
         ))}
       </div>
 
+      <p className="text-center text-sm text-[var(--muted)]">
+        Tip: for eternity bands or wide settings, consider adding ½ size.
+      </p>
+
       <div className="flex gap-3">
         <button
           type="button"
           onClick={onAdjust}
-          className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 text-sm"
+          className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 text-sm text-[var(--ink)] transition-colors hover:bg-[var(--surface-2)]"
         >
           ‹ Adjust
         </button>
         <button
           type="button"
           onClick={onRestart}
-          className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 text-sm"
+          className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 text-sm text-[var(--ink)] transition-colors hover:bg-[var(--surface-2)]"
         >
-          ↻ Restart
+          ↻ Start over
         </button>
         <button
           type="button"
           onClick={share}
-          className="accent-fill flex-1 rounded-lg px-4 py-2.5 text-sm font-semibold text-white"
+          className="gold-fill flex-1 rounded-lg px-4 py-2.5 text-sm font-medium text-[var(--ink)] shadow-[inset_0_1px_0_rgba(255,255,255,0.4)] transition-[filter] hover:brightness-[1.04]"
         >
           {shared ? "Copied" : "Share"}
         </button>

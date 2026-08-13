@@ -1,19 +1,24 @@
 @import "tailwindcss";
 
 :root {
-  --bg: #eef2f4;
-  --bg-deep: #e2e8ec;
-  --surface: #f8fafb;
-  --surface-2: #e8eef1;
-  --ink: #10151a;
-  --muted: #5c6b75;
-  --border: #d3dde3;
-  --accent: #1f7a6c;
-  --accent-deep: #155f54;
-  --accent-soft: #d7efe9;
-  --accent-glow: #3aa891;
-  --stage: #0d1216;
-  --stage-line: #2a343c;
+  --bg: #faf7f1;
+  --bg-deep: #f0e8dc;
+  --surface: #ffffff;
+  --surface-2: #f3ece1;
+  --ink: #17120d;
+  --muted: #7b6c5c;
+  --border: #e7ddcc;
+  --stage: #17130f;
+  --stage-line: #3a3128;
+  --gold: #b8934a;
+  --gold-light: #dcbd7c;
+  --gold-deep: #8a6a2f;
+  --gold-soft: #f0e3c9;
+  /* Aliases — camera scan & legacy components */
+  --accent: var(--gold);
+  --accent-deep: var(--gold-deep);
+  --accent-soft: var(--gold-soft);
+  --accent-glow: var(--gold-light);
   --warn: #b45309;
   --background: var(--bg);
   --foreground: var(--ink);
@@ -34,11 +39,11 @@ html {
 body {
   background: var(--bg);
   color: var(--ink);
-  font-family: var(--font-body), "Segoe UI", sans-serif;
+  font-family: var(--font-body), Georgia, serif;
 }
 
 ::selection {
-  background: var(--accent-soft);
+  background: var(--gold-soft);
   color: var(--ink);
 }
 
@@ -54,28 +59,29 @@ body {
   text-transform: uppercase;
 }
 
+.gold-fill,
 .accent-fill {
   background-image: linear-gradient(
     160deg,
-    var(--accent-glow) 0%,
-    var(--accent) 55%,
-    var(--accent-deep) 100%
+    var(--gold-light) 0%,
+    var(--gold) 55%,
+    var(--gold-deep) 100%
   );
 }
 
 .mesh-bg {
   background-color: var(--bg);
   background-image:
-    radial-gradient(ellipse 80% 60% at 10% -10%, #c5e4dc 0%, transparent 55%),
-    radial-gradient(ellipse 70% 50% at 100% 0%, #d4dce8 0%, transparent 50%),
-    radial-gradient(ellipse 60% 40% at 50% 100%, #dce8e4 0%, transparent 55%),
-    linear-gradient(180deg, #f4f7f8 0%, var(--bg) 40%, var(--bg-deep) 100%);
+    radial-gradient(ellipse 80% 60% at 10% -10%, #f0e3c9 0%, transparent 55%),
+    radial-gradient(ellipse 70% 50% at 100% 0%, #ebe0d0 0%, transparent 50%),
+    radial-gradient(ellipse 60% 40% at 50% 100%, #e8dcc8 0%, transparent 55%),
+    linear-gradient(180deg, #fdfbf7 0%, var(--bg) 40%, var(--bg-deep) 100%);
 }
 
 .stage {
   background: radial-gradient(
     120% 90% at 50% 0%,
-    #1a2229 0%,
+    #221c16 0%,
     var(--stage) 65%
   );
 }
@@ -83,13 +89,13 @@ body {
 .ring-band {
   background: conic-gradient(
     from 200deg,
-    #1a4a42 0deg,
-    #7fd4c3 45deg,
-    #1f7a6c 95deg,
-    #c8efe6 150deg,
-    #155f54 215deg,
-    #3aa891 290deg,
-    #1a4a42 360deg
+    #6b4f1f 0deg,
+    #e8cd8f 45deg,
+    #b8934a 95deg,
+    #f2e0b0 150deg,
+    #8a6a2f 215deg,
+    #dcbd7c 290deg,
+    #6b4f1f 360deg
   );
 }
 
@@ -101,13 +107,13 @@ input[type="range"] {
 input[type="range"]::-webkit-slider-runnable-track {
   height: 3px;
   border-radius: 999px;
-  background: linear-gradient(90deg, var(--accent-deep), var(--accent-glow));
+  background: linear-gradient(90deg, var(--gold-deep), var(--gold-light));
 }
 
 input[type="range"]::-moz-range-track {
   height: 3px;
   border-radius: 999px;
-  background: linear-gradient(90deg, var(--accent-deep), var(--accent-glow));
+  background: linear-gradient(90deg, var(--gold-deep), var(--gold-light));
 }
 
 input[type="range"]::-webkit-slider-thumb {
@@ -116,8 +122,8 @@ input[type="range"]::-webkit-slider-thumb {
   height: 17px;
   width: 17px;
   border-radius: 999px;
-  background-image: linear-gradient(160deg, var(--accent-glow), var(--accent));
-  border: 1px solid var(--accent-deep);
+  background-image: linear-gradient(160deg, var(--gold-light), var(--gold));
+  border: 1px solid var(--gold-deep);
   cursor: pointer;
 }
 
@@ -125,8 +131,8 @@ input[type="range"]::-moz-range-thumb {
   height: 17px;
   width: 17px;
   border-radius: 999px;
-  background-image: linear-gradient(160deg, var(--accent-glow), var(--accent));
-  border: 1px solid var(--accent-deep);
+  background-image: linear-gradient(160deg, var(--gold-light), var(--gold));
+  border: 1px solid var(--gold-deep);
   cursor: pointer;
 }
 

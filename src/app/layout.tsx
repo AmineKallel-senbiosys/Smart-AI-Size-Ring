@@ -1,21 +1,26 @@
 import type { Metadata, Viewport } from "next";
-import { JetBrains_Mono, Manrope, Syne } from "next/font/google";
+import {
+  IBM_Plex_Mono,
+  Playfair_Display,
+  Source_Serif_4,
+} from "next/font/google";
 import { SiteFooter, SiteHeader } from "@/components/SiteChrome";
 import "./globals.css";
 
-const display = Syne({
+const display = Playfair_Display({
   variable: "--font-display",
   subsets: ["latin"],
-  weight: ["500", "600", "700", "800"],
+  weight: ["400", "500", "600", "700"],
+  style: ["normal", "italic"],
 });
 
-const body = Manrope({
+const body = Source_Serif_4({
   variable: "--font-body",
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
+  weight: ["300", "400", "500", "600"],
 });
 
-const mono = JetBrains_Mono({
+const mono = IBM_Plex_Mono({
   variable: "--font-mono",
   subsets: ["latin"],
   weight: ["400", "500"],
@@ -33,6 +38,7 @@ export const metadata: Metadata = {
     description:
       "Guided camera scan with a credit card reference — or measure on your screen. Private, on-device sizing.",
     type: "website",
+    images: [{ url: "/icon.png" }],
   },
 };
 
@@ -40,7 +46,7 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
-  themeColor: "#1f7a6c",
+  themeColor: "#b8934a",
   viewportFit: "cover",
 };
 

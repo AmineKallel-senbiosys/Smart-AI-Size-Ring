@@ -4,35 +4,35 @@ import { motion } from "framer-motion";
 
 const STEPS = ["Start", "Calibrate", "Measure", "Result"] as const;
 
-export function WizardProgress({
-  stepIndex,
-  onStepClick,
-}: {
+type Props = {
   stepIndex: number;
   onStepClick?: (index: number) => void;
-}) {
+};
+
+export function WizardProgress({ stepIndex, onStepClick }: Props) {
   return (
     <ol className="flex items-center gap-1.5">
       {STEPS.map((label, i) => {
         const active = i === stepIndex;
         const done = i < stepIndex;
         const clickable = done && !!onStepClick;
+
         return (
           <li key={label} className="flex min-w-0 flex-1 items-center gap-1.5">
             <button
               type="button"
               disabled={!clickable}
-              onClick={() => clickable && onStepClick?.(i)}
+              onClick={() => clickable && onStepClick(i)}
               className={`flex min-w-0 items-center gap-1.5 ${
                 clickable ? "cursor-pointer" : "cursor-default"
               }`}
             >
               <span
-                className={`mono flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full text-[10px] ${
+                className={`mono flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full text-[10px] leading-none ${
                   active
-                    ? "bg-[var(--ink)] text-white"
+                    ? "bg-[var(--ink)] text-[var(--bg)]"
                     : done
-                      ? "accent-fill text-white"
+                      ? "gold-fill text-[var(--ink)]"
                       : "bg-[var(--surface-2)] text-[var(--muted)]"
                 }`}
               >
@@ -43,7 +43,7 @@ export function WizardProgress({
                   active
                     ? "text-[var(--ink)]"
                     : done
-                      ? "text-[var(--accent-deep)]"
+                      ? "text-[var(--gold-deep)]"
                       : "text-[var(--muted)]"
                 }`}
               >
@@ -51,7 +51,10 @@ export function WizardProgress({
               </span>
             </button>
             {i < STEPS.length - 1 && (
-              <span className="h-px min-w-2 flex-1 bg-[var(--border)]" aria-hidden />
+              <span
+                className="h-px min-w-2 flex-1 bg-[var(--border)]"
+                aria-hidden
+              />
             )}
           </li>
         );
@@ -87,6 +90,7 @@ export function Stage({
   bleed = false,
   crosshair = false,
   minHeight = 200,
+  className = "",
 }: {
   caption?: string;
   children: React.ReactNode;
@@ -94,15 +98,16 @@ export function Stage({
   bleed?: boolean;
   crosshair?: boolean;
   minHeight?: number;
+  className?: string;
 }) {
   return (
     <div
       className={`stage relative border border-[var(--stage-line)] ${
         bleed ? "-mx-6 border-x-0 sm:-mx-8" : "rounded-xl"
-      }`}
+      } ${className}`}
     >
       {caption && (
-        <p className="mono-label px-4 pt-3 text-center text-[#8a9aa5]">
+        <p className="mono-label px-4 pt-3 text-center text-[#8c7c66]">
           {caption}
         </p>
       )}
@@ -115,8 +120,14 @@ export function Stage({
         >
           {crosshair && (
             <>
-              <span className="pointer-events-none absolute inset-x-0 top-1/2 h-px bg-[#8a9aa5]/30" />
-              <span className="pointer-events-none absolute inset-y-0 left-1/2 w-px bg-[#8a9aa5]/30" />
+              <span
+                className="pointer-events-none absolute inset-x-0 top-1/2 h-px bg-[#8c7c66]/30"
+                aria-hidden
+              />
+              <span
+                className="pointer-events-none absolute inset-y-0 left-1/2 w-px bg-[#8c7c66]/30"
+                aria-hidden
+              />
             </>
           )}
           <div
@@ -139,7 +150,7 @@ export function StepHeading({
 }) {
   return (
     <div>
-      <h2 className="font-[family-name:var(--font-display)] text-[22px] font-bold leading-snug text-[var(--ink)]">
+      <h2 className="font-[family-name:var(--font-display)] text-[22px] leading-snug text-[var(--ink)]">
         {title}
       </h2>
       {children && (
@@ -167,7 +178,7 @@ export function ModeToggle({
           onClick={() => onChange(m)}
           className={`rounded-full px-4 py-1.5 text-sm transition-colors ${
             mode === m
-              ? "bg-[var(--ink)] text-white"
+              ? "bg-[var(--ink)] text-[var(--bg)]"
               : "text-[var(--muted)] hover:text-[var(--ink)]"
           }`}
         >
@@ -194,14 +205,14 @@ export function StepNav({
       <button
         type="button"
         onClick={onBack}
-        className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 text-sm text-[var(--ink)]"
+        className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 text-sm text-[var(--ink)] transition-colors hover:bg-[var(--surface-2)]"
       >
         ‹ {backLabel}
       </button>
       <button
         type="button"
         onClick={onNext}
-        className="accent-fill flex-1 rounded-lg px-4 py-2.5 text-sm font-semibold text-white"
+        className="gold-fill flex-1 rounded-lg px-4 py-2.5 text-sm font-medium text-[var(--ink)] shadow-[inset_0_1px_0_rgba(255,255,255,0.4)] transition-[filter] hover:brightness-[1.04]"
       >
         {nextLabel} ›
       </button>
@@ -223,7 +234,7 @@ export function StepperButton({
       type="button"
       onClick={onClick}
       aria-label={label}
-      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface)] text-base"
+      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface)] text-base text-[var(--ink)] transition-colors hover:bg-[var(--surface-2)]"
     >
       {children}
     </button>
