@@ -1,36 +1,40 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Airing — AI Ring Size
 
-## Getting Started
+Web ring sizing inspired by [Aitaca](https://aitaca.io)-style guided photo flows.
 
-First, run the development server:
+## Two modes
+
+1. **Camera scan** (`/scan`) — mobile-first. Opens the phone camera, uses a credit card as scale, measures finger or ring, returns US · UK · EU · JP.
+2. **Screen sizer** (`/sizer`) — calibrate with a card/coin against the display, then match a ring or paper strip.
+
+Everything runs on-device. Photos are not uploaded.
+
+## Run locally
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open `http://localhost:3000`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Test camera on a real phone
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Camera needs a secure context (`https://` or `localhost`).
 
-## Learn More
+From this machine on the same Wi‑Fi:
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+npm run dev -- -H 0.0.0.0
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Then either:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- Use a tunnel (`npx cloudflared tunnel --url http://localhost:3000` or ngrok), **or**
+- Open the LAN URL over HTTPS if you set that up
 
-## Deploy on Vercel
+Grant camera permission when prompted. Prefer the rear camera and lay the hand + card flat under even light.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Stack
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Next.js 16 · React 19 · Tailwind 4 · Framer Motion

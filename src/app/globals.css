@@ -1,26 +1,174 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --bg: #eef2f4;
+  --bg-deep: #e2e8ec;
+  --surface: #f8fafb;
+  --surface-2: #e8eef1;
+  --ink: #10151a;
+  --muted: #5c6b75;
+  --border: #d3dde3;
+  --accent: #1f7a6c;
+  --accent-deep: #155f54;
+  --accent-soft: #d7efe9;
+  --accent-glow: #3aa891;
+  --stage: #0d1216;
+  --stage-line: #2a343c;
+  --warn: #b45309;
+  --background: var(--bg);
+  --foreground: var(--ink);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-body);
+  --font-display: var(--font-display);
+  --font-mono: var(--font-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  scroll-behavior: smooth;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body), "Segoe UI", sans-serif;
+}
+
+::selection {
+  background: var(--accent-soft);
+  color: var(--ink);
+}
+
+.mono {
+  font-family: var(--font-mono), ui-monospace, monospace;
+}
+
+.mono-label {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.6875rem;
+  line-height: 1.2;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.accent-fill {
+  background-image: linear-gradient(
+    160deg,
+    var(--accent-glow) 0%,
+    var(--accent) 55%,
+    var(--accent-deep) 100%
+  );
+}
+
+.mesh-bg {
+  background-color: var(--bg);
+  background-image:
+    radial-gradient(ellipse 80% 60% at 10% -10%, #c5e4dc 0%, transparent 55%),
+    radial-gradient(ellipse 70% 50% at 100% 0%, #d4dce8 0%, transparent 50%),
+    radial-gradient(ellipse 60% 40% at 50% 100%, #dce8e4 0%, transparent 55%),
+    linear-gradient(180deg, #f4f7f8 0%, var(--bg) 40%, var(--bg-deep) 100%);
+}
+
+.stage {
+  background: radial-gradient(
+    120% 90% at 50% 0%,
+    #1a2229 0%,
+    var(--stage) 65%
+  );
+}
+
+.ring-band {
+  background: conic-gradient(
+    from 200deg,
+    #1a4a42 0deg,
+    #7fd4c3 45deg,
+    #1f7a6c 95deg,
+    #c8efe6 150deg,
+    #155f54 215deg,
+    #3aa891 290deg,
+    #1a4a42 360deg
+  );
+}
+
+input[type="range"] {
+  appearance: none;
+  background: transparent;
+}
+
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 3px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent-deep), var(--accent-glow));
+}
+
+input[type="range"]::-moz-range-track {
+  height: 3px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent-deep), var(--accent-glow));
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  margin-top: -7px;
+  height: 17px;
+  width: 17px;
+  border-radius: 999px;
+  background-image: linear-gradient(160deg, var(--accent-glow), var(--accent));
+  border: 1px solid var(--accent-deep);
+  cursor: pointer;
+}
+
+input[type="range"]::-moz-range-thumb {
+  height: 17px;
+  width: 17px;
+  border-radius: 999px;
+  background-image: linear-gradient(160deg, var(--accent-glow), var(--accent));
+  border: 1px solid var(--accent-deep);
+  cursor: pointer;
+}
+
+@keyframes pulse-ring {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scale(1.04);
+  }
+}
+
+.guide-pulse {
+  animation: pulse-ring 2.4s ease-in-out infinite;
+}
+
+@keyframes float-y {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+.float-y {
+  animation: float-y 4.5s ease-in-out infinite;
+}
+
+.camera-safe-top {
+  padding-top: max(0.75rem, env(safe-area-inset-top, 0px));
+}
+
+.camera-safe-bottom {
+  padding-bottom: max(1rem, env(safe-area-inset-bottom, 0px));
+}
+
+html:has(.camera-fullscreen) header,
+html:has(.camera-fullscreen) footer {
+  display: none;
 }
