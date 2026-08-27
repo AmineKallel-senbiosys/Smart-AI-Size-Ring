@@ -36,12 +36,12 @@ export function ResultPanel({ mode, valueMm, onAdjust, onRestart }: Props) {
   const { row } = converted;
 
   const share = async () => {
-    const text = `My ring size is US ${formatUsSize(row.us)} (UK ${row.uk}, EU ${
+    const text = `My finger circumference is ${formatMm(circumferenceMm)} mm (Ø ${formatMm(diameterMm, 2)} mm · US ${formatUsSize(row.us)}, UK ${row.uk}, EU ${
       row.eu ?? "—"
     }, JP ${row.jp ?? "—"}) — measured with Airing`;
     if (navigator.share) {
       try {
-        await navigator.share({ title: "My ring size", text });
+        await navigator.share({ title: "My ring measure", text });
         return;
       } catch {
         /* fall back to clipboard */
@@ -54,20 +54,19 @@ export function ResultPanel({ mode, valueMm, onAdjust, onRestart }: Props) {
 
   return (
     <div className="space-y-5">
-      <StepHeading title="Your ring size">
+      <StepHeading title="Your circumference">
         Based on your measurement — saved automatically on this device.
       </StepHeading>
 
-      <Stage caption="Your measured size">
+      <Stage caption="Your measured circumference">
         <div className="text-center">
-          <p className="mono-label text-[#8c7c66]">US Ring Size</p>
+          <p className="mono-label text-[var(--gold-deep)]">Circumference</p>
           <p className="font-[family-name:var(--font-display)] text-6xl leading-none text-[var(--gold-light)]">
-            {formatUsSize(row.us)}
+            {formatMm(circumferenceMm)}
+            <span className="ml-2 text-2xl text-[#8c7c66]">mm</span>
           </p>
           <p className="mono mt-3 text-[11px] text-[#8c7c66]">
-            {formatMm(diameterMm, 2)} mm diameter
-            <span className="mx-1.5 text-[var(--gold)]">·</span>
-            {formatMm(circumferenceMm)} mm circumference
+            Ø diameter {formatMm(diameterMm, 2)} mm
           </p>
         </div>
       </Stage>

@@ -1,12 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { StoredCalibration } from "@/lib/calibration";
 import {
   diameterToCircumference,
-  findNearestByDiameter,
   formatMm,
-  formatUsSize,
 } from "@/lib/convert";
 import {
   getRingStyle,
@@ -125,8 +123,6 @@ export function RingMeasure({
     ? imagePx
     : holePx + Math.max(10, holePx * 0.13) * 2;
 
-  const preview = useMemo(() => findNearestByDiameter(diameterMm), [diameterMm]);
-
   const nudge = useCallback(
     (deltaMm: number) => {
       onDiameterChange(
@@ -237,15 +233,14 @@ export function RingMeasure({
 
       <div className="flex items-center justify-between gap-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3">
         <div>
-          <p className="mono-label text-[var(--muted)]">US Size</p>
-          <p className="font-[family-name:var(--font-display)] text-3xl leading-tight text-[var(--ink)]">
-            {formatUsSize(preview.row.us)}
+          <p className="mono-label text-[var(--gold-deep)]">Circumference</p>
+          <p className="font-[family-name:var(--font-display)] text-3xl leading-tight text-[var(--gold)]">
+            {formatMm(diameterToCircumference(diameterMm))}
+            <span className="ml-1.5 text-base text-[var(--muted)]">mm</span>
           </p>
         </div>
         <p className="mono text-right text-[11px] leading-relaxed text-[var(--muted)]">
-          Circumference {formatMm(diameterToCircumference(diameterMm))} mm
-          <span className="mx-1.5 text-[var(--gold)]">·</span>
-          Diameter {formatMm(diameterMm, 2)} mm
+          Ø {formatMm(diameterMm, 2)} mm
         </p>
       </div>
 

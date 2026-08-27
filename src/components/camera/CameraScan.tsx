@@ -1008,8 +1008,6 @@ export function CameraScan() {
                         </div>
                         <p className="mono text-right text-[10px] text-white/45">
                           Ø {formatMm(diameterMm, 2)} mm
-                          <br />
-                          US {formatUsSize(converted.row.us)}
                         </p>
                       </div>
                       <div className="mt-4 flex gap-3">

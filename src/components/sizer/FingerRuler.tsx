@@ -1,12 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import type { StoredCalibration } from "@/lib/calibration";
 import {
   circumferenceToDiameter,
-  findNearestByCircumference,
   formatMm,
-  formatUsSize,
 } from "@/lib/convert";
 import {
   ModeToggle,
@@ -39,11 +37,6 @@ export function FingerRuler({
   onResult,
 }: Props) {
   const trackRef = useRef<HTMLDivElement>(null);
-
-  const preview = useMemo(
-    () => findNearestByCircumference(circumferenceMm),
-    [circumferenceMm]
-  );
 
   const rulerCssPx = RULER_MM / calibration.mmPerPx;
   const markerLeft = circumferenceMm / calibration.mmPerPx;
@@ -182,15 +175,14 @@ export function FingerRuler({
 
       <div className="flex items-center justify-between gap-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3">
         <div>
-          <p className="mono-label text-[var(--muted)]">US Size</p>
-          <p className="font-[family-name:var(--font-display)] text-3xl leading-tight text-[var(--ink)]">
-            {formatUsSize(preview.row.us)}
+          <p className="mono-label text-[var(--gold-deep)]">Circumference</p>
+          <p className="font-[family-name:var(--font-display)] text-3xl leading-tight text-[var(--gold)]">
+            {formatMm(circumferenceMm)}
+            <span className="ml-1.5 text-base text-[var(--muted)]">mm</span>
           </p>
         </div>
         <p className="mono text-right text-[11px] leading-relaxed text-[var(--muted)]">
-          Circumference {formatMm(circumferenceMm)} mm
-          <span className="mx-1.5 text-[var(--gold)]">·</span>
-          Diameter {formatMm(circumferenceToDiameter(circumferenceMm), 2)} mm
+          Ø {formatMm(circumferenceToDiameter(circumferenceMm), 2)} mm
         </p>
       </div>
 
