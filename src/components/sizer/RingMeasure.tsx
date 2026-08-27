@@ -29,6 +29,9 @@ type Props = {
   onRecalibrate: () => void;
   onSwitchFinger: () => void;
   onResult: () => void;
+  /** Guided explore: hide mode toggle, custom continue label */
+  guided?: boolean;
+  nextLabel?: string;
 };
 
 const MIN_MM = 12;
@@ -109,6 +112,8 @@ export function RingMeasure({
   onRecalibrate,
   onSwitchFinger,
   onResult,
+  guided = false,
+  nextLabel = "Next step",
 }: Props) {
   const [styleId, setStyleId] = useState<RingStyleId>("classic");
   const style = getRingStyle(styleId);
@@ -164,10 +169,12 @@ export function RingMeasure({
         </button>
       </StepHeading>
 
-      <ModeToggle
-        mode="ring"
-        onChange={(m) => m === "finger" && onSwitchFinger()}
-      />
+      {!guided && (
+        <ModeToggle
+          mode="ring"
+          onChange={(m) => m === "finger" && onSwitchFinger()}
+        />
+      )}
 
       <div>
         <p className="mono-label mb-2 text-center text-[var(--muted)]">
@@ -244,7 +251,7 @@ export function RingMeasure({
         </p>
       </div>
 
-      <StepNav onBack={onBack} onNext={onResult} nextLabel="See my size" />
+      <StepNav onBack={onBack} onNext={onResult} nextLabel={nextLabel} />
     </div>
   );
 }

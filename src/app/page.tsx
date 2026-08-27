@@ -4,23 +4,23 @@ import { RingMark } from "@/components/RingMark";
 const STEPS = [
   {
     n: "01",
-    title: "One guided photo",
-    body: "Open the camera from your phone. Place a credit card next to your hand or ring.",
+    title: "Use a ring",
+    body: "Calibrate your screen, then match a ring you own to the on-screen hole.",
   },
   {
     n: "02",
-    title: "Calibrate with the card",
-    body: "Match the overlay to the card's known 85.6 mm edge — that locks real-world scale.",
+    title: "Measure your finger",
+    body: "Wrap a paper strip around your finger and align it on the calibrated ruler.",
   },
   {
     n: "03",
-    title: "Fit the measure circle",
-    body: "Resize to your finger diameter or a ring's inner edge. US · UK · EU · JP appear live.",
+    title: "Camera on your phone",
+    body: "Finish with a guided photo scan — credit card as scale — then enter that Circ.",
   },
   {
     n: "04",
     title: "Get your size",
-    body: "Keep the recommendation, share it, or confirm again with the screen sizer.",
+    body: "We average all three circumferences and map to US 6 · 8 · 10 · 12.",
   },
 ];
 
@@ -31,7 +31,7 @@ export default function HomePage() {
         <div className="mx-auto grid max-w-6xl items-center gap-10 px-4 pb-16 pt-10 sm:px-6 lg:grid-cols-[1.05fr_0.95fr] lg:gap-14 lg:pb-20 lg:pt-16">
           <div>
             <p className="mono-label text-[var(--gold-deep)]">
-              AI · Guided photo · On-device
+              Three measures · One size
             </p>
             <div className="mt-5 flex items-center gap-4">
               <RingMark size={48} />
@@ -40,27 +40,21 @@ export default function HomePage() {
               </h1>
             </div>
             <p className="mt-5 max-w-md text-lg leading-relaxed text-[var(--muted)] sm:text-xl">
-              AI ring sizing for the web. No kits, no charts, no guessing —
-              one photo with a credit card as scale.
+              Ring on screen, paper strip, then camera on your phone — we
+              average the three circumferences for your best fit.
             </p>
-            <div className="mt-8 flex flex-wrap gap-3">
+            <div className="mt-8">
               <Link
-                href="/scan"
+                href="/explore"
                 className="gold-fill inline-flex items-center justify-center rounded-xl px-6 py-3.5 text-[15px] font-medium text-[var(--ink)] shadow-[inset_0_1px_0_rgba(255,255,255,0.4),0_16px_36px_-16px_rgba(184,147,74,0.55)] transition-[filter] hover:brightness-[1.04]"
               >
-                Open camera scan
-              </Link>
-              <Link
-                href="/sizer"
-                className="inline-flex items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--surface)]/90 px-6 py-3.5 text-[15px] font-medium text-[var(--ink)] backdrop-blur transition-colors hover:bg-[var(--surface)]"
-              >
-                Use screen sizer
+                Let&apos;s start exploring your size ›
               </Link>
             </div>
             <ul className="mt-8 flex flex-wrap gap-x-5 gap-y-2 text-sm text-[var(--muted)]">
               <li>Private — nothing uploaded</li>
-              <li>US · UK · EU · JP</li>
-              <li>Phone-first</li>
+              <li>US 6 · 8 · 10 · 12</li>
+              <li>On-device</li>
             </ul>
           </div>
 
@@ -68,17 +62,28 @@ export default function HomePage() {
             <div className="float-y relative aspect-[9/16] overflow-hidden rounded-[2rem] border border-[var(--border)] bg-[var(--stage)] shadow-[0_40px_80px_-28px_rgba(23,18,13,0.45)]">
               <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_30%_20%,#b8934a44,transparent_45%),linear-gradient(180deg,#221c16_0%,#17130f_100%)]" />
               <div className="absolute inset-x-6 top-10 text-center">
-                <p className="mono-label text-[var(--gold-light)]">Live guide</p>
+                <p className="mono-label text-[var(--gold-light)]">Guided flow</p>
                 <p className="mt-2 font-[family-name:var(--font-display)] text-2xl text-white">
-                  Align · Capture · Size
+                  Ring · Finger · Camera
                 </p>
               </div>
-              <div className="guide-pulse absolute left-[12%] top-[28%] h-[18%] w-[42%] rounded-md border-2 border-dashed border-[var(--gold-light)]/80" />
-              <div className="guide-pulse absolute bottom-[22%] right-[14%] h-[30%] w-[30%] rounded-[45%] border-2 border-dashed border-white/60" />
+              <div className="absolute inset-x-8 top-[38%] space-y-3">
+                {["Ring circ", "Finger circ", "Camera circ"].map((label, i) => (
+                  <div
+                    key={label}
+                    className="flex items-center justify-between rounded-xl border border-white/10 bg-white/10 px-3 py-2.5 backdrop-blur-md"
+                  >
+                    <span className="mono-label text-white/55">{label}</span>
+                    <span className="font-[family-name:var(--font-display)] text-white">
+                      {["57.0", "56.8", "57.3"][i]} mm
+                    </span>
+                  </div>
+                ))}
+              </div>
               <div className="absolute inset-x-8 bottom-10 rounded-2xl border border-white/10 bg-white/10 px-4 py-3 backdrop-blur-md">
-                <p className="mono-label text-white/60">Recommended</p>
+                <p className="mono-label text-white/60">Your size</p>
                 <p className="font-[family-name:var(--font-display)] text-3xl text-[var(--gold-light)]">
-                  US 7
+                  US 10
                 </p>
               </div>
             </div>
@@ -94,7 +99,7 @@ export default function HomePage() {
         <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-20">
           <p className="mono-label text-[var(--gold-deep)]">How it works</p>
           <h2 className="mt-3 max-w-xl font-[family-name:var(--font-display)] text-3xl tracking-tight text-[var(--ink)] sm:text-4xl">
-            From one photo to the right ring size.
+            Three measures. One clear size.
           </h2>
           <div className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
             {STEPS.map((s) => (
@@ -108,43 +113,6 @@ export default function HomePage() {
                 </p>
               </article>
             ))}
-          </div>
-        </div>
-      </section>
-
-      <section>
-        <div className="mx-auto grid max-w-6xl gap-8 px-4 py-16 sm:px-6 sm:py-20 lg:grid-cols-2">
-          <div className="rounded-3xl border border-[var(--border)] bg-[var(--surface)]/80 p-8 backdrop-blur">
-            <p className="mono-label text-[var(--gold-deep)]">Mobile</p>
-            <h3 className="mt-3 font-[family-name:var(--font-display)] text-2xl">
-              Camera scan
-            </h3>
-            <p className="mt-3 text-sm leading-relaxed text-[var(--muted)]">
-              Best on a phone. Opens the rear camera, guides card + hand
-              placement, then converts the measurement with on-device scale.
-            </p>
-            <Link
-              href="/scan"
-              className="gold-fill mt-6 inline-flex rounded-xl px-5 py-3 text-sm font-medium text-[var(--ink)] shadow-[inset_0_1px_0_rgba(255,255,255,0.4)]"
-            >
-              Start camera flow
-            </Link>
-          </div>
-          <div className="rounded-3xl border border-[var(--border)] bg-[var(--surface)]/80 p-8 backdrop-blur">
-            <p className="mono-label text-[var(--gold-deep)]">Desktop · Tablet</p>
-            <h3 className="mt-3 font-[family-name:var(--font-display)] text-2xl">
-              Screen sizer
-            </h3>
-            <p className="mt-3 text-sm leading-relaxed text-[var(--muted)]">
-              Calibrate the display with a physical card or coin, then match a
-              ring or paper finger strip — same size chart, no camera needed.
-            </p>
-            <Link
-              href="/sizer"
-              className="mt-6 inline-flex rounded-xl border border-[var(--border)] bg-[var(--bg)] px-5 py-3 text-sm font-medium text-[var(--ink)]"
-            >
-              Open screen sizer
-            </Link>
           </div>
         </div>
       </section>

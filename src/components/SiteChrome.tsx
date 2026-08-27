@@ -16,16 +16,10 @@ export function SiteHeader() {
         </Link>
         <nav className="flex items-center gap-1 sm:gap-2">
           <Link
-            href="/sizer"
-            className="rounded-lg px-3 py-2 text-sm text-[var(--muted)] transition-colors hover:text-[var(--ink)]"
-          >
-            Screen
-          </Link>
-          <Link
-            href="/scan"
+            href="/explore"
             className="gold-fill rounded-lg px-3.5 py-2 text-sm font-medium text-[var(--ink)] shadow-[inset_0_1px_0_rgba(255,255,255,0.4)] transition-[filter] hover:brightness-[1.04]"
           >
-            Camera scan
+            Explore size
           </Link>
         </nav>
       </div>
@@ -41,8 +35,8 @@ export function SiteFooter() {
           <RingMark size={18} />
           Airing
         </p>
-        <p>On-device sizing · nothing uploaded · US · UK · EU · JP</p>
-        <p className="mono text-xs">Guided photo + screen sizer</p>
+        <p>Three measures · averaged · US 6 · 8 · 10 · 12</p>
+        <p className="mono text-xs">On-device · nothing uploaded</p>
       </div>
     </footer>
   );

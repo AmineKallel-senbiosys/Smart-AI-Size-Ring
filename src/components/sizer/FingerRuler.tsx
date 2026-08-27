@@ -22,6 +22,8 @@ type Props = {
   onRecalibrate: () => void;
   onSwitchRing: () => void;
   onResult: () => void;
+  guided?: boolean;
+  nextLabel?: string;
 };
 
 const MIN_MM = 40;
@@ -35,6 +37,8 @@ export function FingerRuler({
   onRecalibrate,
   onSwitchRing,
   onResult,
+  guided = false,
+  nextLabel = "Next step",
 }: Props) {
   const trackRef = useRef<HTMLDivElement>(null);
 
@@ -90,10 +94,12 @@ export function FingerRuler({
         </button>
       </StepHeading>
 
-      <ModeToggle
-        mode="finger"
-        onChange={(m) => m === "ring" && onSwitchRing()}
-      />
+      {!guided && (
+        <ModeToggle
+          mode="finger"
+          onChange={(m) => m === "ring" && onSwitchRing()}
+        />
+      )}
 
       <Stage
         caption="Align the strip at 0 · drag to your mark"
@@ -186,7 +192,7 @@ export function FingerRuler({
         </p>
       </div>
 
-      <StepNav onBack={onBack} onNext={onResult} nextLabel="See my size" />
+      <StepNav onBack={onBack} onNext={onResult} nextLabel={nextLabel} />
     </div>
   );
 }
