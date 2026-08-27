@@ -69,6 +69,7 @@ export function CameraScan() {
   const [envLum, setEnvLum] = useState<number | null>(null);
   const [distCm, setDistCm] = useState<number | null>(null);
   const [tiltDeg, setTiltDeg] = useState<number | null>(null);
+  const [tiltRoll, setTiltRoll] = useState(0);
 
   const stageRef = useRef<HTMLDivElement>(null);
   const [stageW, setStageW] = useState(320);
@@ -161,6 +162,8 @@ export function CameraScan() {
     const onOrientation = (e: DeviceOrientationEvent) => {
       if (e.beta == null || e.gamma == null) return;
       setTiltDeg(Math.round(Math.min(90, Math.hypot(e.beta, e.gamma))));
+      // Left–right roll drives the spirit-level line offset (like iOS Camera).
+      setTiltRoll(Math.max(-45, Math.min(45, e.gamma)));
     };
     window.addEventListener("deviceorientation", onOrientation);
     return () => window.removeEventListener("deviceorientation", onOrientation);
@@ -497,6 +500,7 @@ export function CameraScan() {
     setEnvLum(null);
     setDistCm(null);
     setTiltDeg(null);
+    setTiltRoll(0);
     setAiStatus("Opening camera…");
 
     // iOS 13+ requires a user-gesture permission request for tilt sensors.
@@ -714,6 +718,10 @@ export function CameraScan() {
                     <>
                       <div className="pointer-events-none absolute inset-0">
                         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_55%,rgba(0,0,0,0.35)_100%)]" />
+                        <LevelCalibrationLine
+                          tiltDeg={tiltDeg}
+                          rollDeg={tiltRoll}
+                        />
                         {!liveFinger && (
                           <div className="absolute bottom-[22%] left-[8%] w-[32%] opacity-50">
                             <FingerGuideGhost />
@@ -878,7 +886,7 @@ export function CameraScan() {
                       ×
                     </button>
                     <p className="rounded-full bg-black/45 px-3 py-1.5 text-xs font-medium text-white backdrop-blur-sm">
-                      {step === "preview" ? "Your size" : "Fine-tune"}
+                      {step === "preview" ? "Your measure" : "Fine-tune"}
                     </p>
                     <span className="w-10" aria-hidden />
                   </div>
@@ -888,9 +896,17 @@ export function CameraScan() {
                   {step === "preview" ? (
                     <>
                       <div className="rounded-2xl border border-white/15 bg-black/55 px-5 py-4 backdrop-blur-md">
-                        <p className="mono-label text-white/55">US ring size</p>
-                        <p className="mt-1 font-[family-name:var(--font-display)] text-5xl font-bold leading-none text-white">
-                          {formatUsSize(converted.row.us)}
+                        <p className="mono-label text-[var(--gold-light)]">
+                          Circumference
+                        </p>
+                        <p className="mt-1 font-[family-name:var(--font-display)] text-5xl font-bold leading-none text-[var(--gold-light)]">
+                          {formatMm(circumferenceMm)}
+                          <span className="ml-2 text-2xl font-normal text-white/70">
+                            mm
+                          </span>
+                        </p>
+                        <p className="mono mt-3 text-center text-[11px] text-white/50">
+                          Ø diameter {formatMm(diameterMm, 2)} mm
                         </p>
                         <div className="mt-3 grid grid-cols-4 gap-2">
                           {[
@@ -924,10 +940,6 @@ export function CameraScan() {
                             </div>
                           ))}
                         </div>
-                        <p className="mono mt-3 text-center text-[10px] text-white/45">
-                          Ø {formatMm(diameterMm, 2)} mm · Circ{" "}
-                          {formatMm(circumferenceMm)} mm
-                        </p>
                       </div>
                       <div className="mt-4 flex gap-3">
                         <button
@@ -984,15 +996,20 @@ export function CameraScan() {
                       </div>
                       <div className="flex items-end justify-between rounded-xl border border-white/15 bg-black/55 px-4 py-3 backdrop-blur-md">
                         <div>
-                          <p className="mono-label text-white/55">US size</p>
-                          <p className="font-[family-name:var(--font-display)] text-3xl font-bold text-white">
-                            {formatUsSize(converted.row.us)}
+                          <p className="mono-label text-[var(--gold-light)]">
+                            Circumference
+                          </p>
+                          <p className="font-[family-name:var(--font-display)] text-3xl font-bold text-[var(--gold-light)]">
+                            {formatMm(circumferenceMm)}
+                            <span className="ml-1.5 text-base font-normal text-white/70">
+                              mm
+                            </span>
                           </p>
                         </div>
                         <p className="mono text-right text-[10px] text-white/45">
                           Ø {formatMm(diameterMm, 2)} mm
                           <br />
-                          Circ {formatMm(circumferenceMm)} mm
+                          US {formatUsSize(converted.row.us)}
                         </p>
                       </div>
                       <div className="mt-4 flex gap-3">
@@ -1089,18 +1106,18 @@ export function CameraScan() {
 
         {step === "result" && (
           <Panel key="result">
-            <Badge>Recommendation</Badge>
+            <Badge>Measurement</Badge>
             <h2 className="mt-3 font-[family-name:var(--font-display)] text-2xl font-bold">
-              Your ring size
+              Your circumference
             </h2>
             <div className="mt-5 rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-6 py-8 text-center">
-              <p className="mono-label text-[var(--muted)]">US ring size</p>
+              <p className="mono-label text-[var(--gold-deep)]">Circumference</p>
               <p className="mt-2 font-[family-name:var(--font-display)] text-6xl text-[var(--gold-light)]">
-                {formatUsSize(converted.row.us)}
+                {formatMm(circumferenceMm)}
+                <span className="ml-2 text-2xl text-[var(--muted)]">mm</span>
               </p>
               <p className="mono mt-3 text-[11px] text-[var(--muted)]">
-                {formatMm(diameterMm, 2)} mm Ø · {formatMm(circumferenceMm)} mm
-                circ
+                Ø diameter {formatMm(diameterMm, 2)} mm
               </p>
             </div>
             <div className="mt-4 grid grid-cols-4 gap-2">
@@ -1242,6 +1259,73 @@ function CaptureGuide({ staticPreview = false }: { staticPreview?: boolean }) {
           CARD
         </p>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Apple Camera-style spirit level.
+ * Two fixed white side dashes + a center segment that rotates with roll.
+ * Within ~2.5° everything merges into one yellow line, then fades away.
+ */
+function LevelCalibrationLine({
+  tiltDeg,
+  rollDeg,
+}: {
+  tiltDeg: number | null;
+  rollDeg: number;
+}) {
+  const leveled = tiltDeg != null && Math.abs(rollDeg) <= 2.5;
+  const [faded, setFaded] = useState(false);
+
+  // Fade the line out ~0.8s after leveling (like iOS), reappear on tilt.
+  useEffect(() => {
+    if (!leveled) {
+      setFaded(false);
+      return;
+    }
+    const t = setTimeout(() => setFaded(true), 800);
+    return () => clearTimeout(t);
+  }, [leveled]);
+
+  if (tiltDeg == null) return null;
+
+  const rotate = leveled ? 0 : Math.max(-30, Math.min(30, -rollDeg));
+  const white = "rgba(255,255,255,0.9)";
+  const yellow = "#ffcc00";
+  const color = leveled ? yellow : white;
+
+  return (
+    <div
+      className="pointer-events-none absolute left-1/2 top-1/2 z-[6] h-6 w-[176px] -translate-x-1/2 -translate-y-1/2 transition-opacity duration-500"
+      style={{ opacity: faded ? 0 : 1 }}
+      aria-hidden
+    >
+      {/* Left dash (fixed) */}
+      <span
+        className="absolute left-0 top-1/2 h-[1.5px] w-[30px] -translate-y-1/2 transition-colors duration-150"
+        style={{
+          background: color,
+          boxShadow: "0 0 3px rgba(0,0,0,0.5)",
+        }}
+      />
+      {/* Right dash (fixed) */}
+      <span
+        className="absolute right-0 top-1/2 h-[1.5px] w-[30px] -translate-y-1/2 transition-colors duration-150"
+        style={{
+          background: color,
+          boxShadow: "0 0 3px rgba(0,0,0,0.5)",
+        }}
+      />
+      {/* Center segment — rotates with roll, snaps yellow when level */}
+      <span
+        className="absolute left-1/2 top-1/2 h-[1.5px] w-[92px] transition-colors duration-150"
+        style={{
+          background: color,
+          boxShadow: "0 0 3px rgba(0,0,0,0.5)",
+          transform: `translate(-50%, -50%) rotate(${rotate}deg)`,
+        }}
+      />
     </div>
   );
 }

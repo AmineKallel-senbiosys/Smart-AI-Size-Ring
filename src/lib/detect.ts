@@ -180,8 +180,7 @@ export function detectFingerFromLandmarks(
     }
   }
 
-  // A ring's inner diameter is slightly larger than the flesh it slides over
-  diameterPx = clamp(diameterPx * 1.06, minWidthPx, maxWidthPx);
+  diameterPx = clamp(diameterPx, minWidthPx, maxWidthPx);
 
   const vis =
     ((mcp.visibility ?? 1) +
