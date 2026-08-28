@@ -23,12 +23,7 @@ export type CircClassification = {
  *
  * green/red widths are 25% each of the 5.1 mm gap between stocked sizes
  * (except size 6 which uses the US 5.5 boundary from the sheet).
- *
- * All values are scaled by SIZE_ADJUST (+1%), so e.g. US 10 becomes
- * 62.1 × 1.01 = 62.721 mm.
  */
-const SIZE_ADJUST = 1.01;
-
 const CUT_OFFS: {
   us: AvailableUsSize;
   redStart: number;
@@ -40,13 +35,7 @@ const CUT_OFFS: {
   { us: 8, redStart: 54.45, greenStart: 55.725, sizeCirc: 57.0, blackEnd: 59.55 },
   { us: 10, redStart: 59.55, greenStart: 60.825, sizeCirc: 62.1, blackEnd: 64.65 },
   { us: 12, redStart: 64.65, greenStart: 65.925, sizeCirc: 67.2, blackEnd: Infinity },
-].map((c) => ({
-  us: c.us as AvailableUsSize,
-  redStart: c.redStart * SIZE_ADJUST,
-  greenStart: c.greenStart * SIZE_ADJUST,
-  sizeCirc: c.sizeCirc * SIZE_ADJUST,
-  blackEnd: c.blackEnd * SIZE_ADJUST,
-}));
+];
 
 /** Classify one circumference (mm) into a size band + colour. */
 export function classifyCircumference(circMm: number): CircClassification {
@@ -76,32 +65,53 @@ export type FitLabel =
   | "very_loose"
   | "very_tight";
 
+export type MeasureKey = "ring" | "finger" | "camera";
+
 export type SizeVerdict =
   | { status: "size"; us: AvailableUsSize; fit: FitLabel }
   | { status: "remeasure" }
   | { status: "unavailable" };
 
+export type LabeledCirc = {
+  key: MeasureKey;
+  circMm: number;
+};
+
+export type MeasureClassification = CircClassification & {
+  key: MeasureKey;
+  circMm: number;
+};
+
 /**
- * Decision tree on the 3 colours (OK = green):
+ * Decision tree on the colours (OK = green). Works with 2 or 3 measures
+ * (ring can be skipped):
  *
- *   3 green            → size, perfect
- *   2 green + 1 black  → size, tight
- *   2 green + 1 red    → size, loose
- *   1 green + 2 red    → size, very loose
- *   1 green + 2 black  → size, very tight
- *   3 black            → choose another finger and remeasure
+ *   all green                 → size, perfect
+ *   all-but-1 green + 1 black → size, tight
+ *   all-but-1 green + 1 red   → size, loose
+ *   1 green + 2+ red          → size, very loose
+ *   1 green + 2+ black        → size, very tight
+ *   all black                 → choose another finger and remeasure
  *
- * Extensions for combos not in the tree:
- *   3 red              → size, very loose
+ * Extensions:
+ *   all red            → size, very loose
  *   any other mix      → remeasure
  *   all below chart    → size unavailable
  */
-export function decideSize(circs: [number, number, number]): {
+export function decideSize(inputs: LabeledCirc[]): {
   verdict: SizeVerdict;
-  classifications: CircClassification[];
+  classifications: MeasureClassification[];
 } {
-  const classifications = circs.map(classifyCircumference);
+  const classifications: MeasureClassification[] = inputs.map((i) => ({
+    key: i.key,
+    circMm: i.circMm,
+    ...classifyCircumference(i.circMm),
+  }));
 
+  const n = classifications.length;
+  if (n === 0) {
+    return { verdict: { status: "unavailable" }, classifications };
+  }
   if (classifications.every((c) => c.belowChart)) {
     return { verdict: { status: "unavailable" }, classifications };
   }
@@ -109,43 +119,47 @@ export function decideSize(circs: [number, number, number]): {
   const greens = classifications.filter((c) => c.color === "green").length;
   const reds = classifications.filter((c) => c.color === "red").length;
   const blacks = classifications.filter((c) => c.color === "black").length;
-
-  if (blacks === 3) {
-    return { verdict: { status: "remeasure" }, classifications };
-  }
-
   const us = pickSize(classifications);
 
-  if (greens === 3) {
+  if (blacks === n) {
+    return { verdict: { status: "remeasure" }, classifications };
+  }
+  if (greens === n) {
     return { verdict: { status: "size", us, fit: "perfect" }, classifications };
   }
-  if (greens === 2 && blacks === 1) {
+  if (greens === n - 1 && blacks === 1) {
     return { verdict: { status: "size", us, fit: "tight" }, classifications };
   }
-  if (greens === 2 && reds === 1) {
+  if (greens === n - 1 && reds === 1) {
     return { verdict: { status: "size", us, fit: "loose" }, classifications };
   }
-  if (greens === 1 && reds === 2) {
+  if (greens === 1 && reds >= 2) {
     return {
       verdict: { status: "size", us, fit: "very_loose" },
       classifications,
     };
   }
-  if (greens === 1 && blacks === 2) {
+  if (greens === 1 && blacks >= 2) {
     return {
       verdict: { status: "size", us, fit: "very_tight" },
       classifications,
     };
   }
-  if (reds === 3) {
+  if (reds === n) {
     return {
       verdict: { status: "size", us, fit: "very_loose" },
       classifications,
     };
   }
 
-  // Conflicting mix (e.g. 1 green + 1 red + 1 black) — ask to remeasure
   return { verdict: { status: "remeasure" }, classifications };
+}
+
+/** Per-measure fit from its colour zone (not the combined decision tree). */
+export function fitFromColor(color: FitColor): "ok" | "loose" | "tight" {
+  if (color === "green") return "ok";
+  if (color === "red") return "loose";
+  return "tight";
 }
 
 /** Majority size across the three values; green votes weigh more. */
@@ -172,8 +186,6 @@ export function averageCircumference(values: number[]): number {
   return valid.reduce((a, b) => a + b, 0) / valid.length;
 }
 
-export type MeasureKey = "ring" | "finger" | "camera";
-
 export type CircumferenceOutlier = {
   key: MeasureKey;
   label: string;
@@ -197,17 +209,19 @@ const MEASURE_LABELS: Record<MeasureKey, string> = {
  */
 export function findCircumferenceOutlier(
   measures: {
-    ring: number;
+    ring?: number | null;
     finger: number;
     camera: number;
   },
   thresholdPct = 0.02
 ): CircumferenceOutlier | null {
   const entries: { key: MeasureKey; value: number }[] = [
-    { key: "ring", value: measures.ring },
     { key: "finger", value: measures.finger },
     { key: "camera", value: measures.camera },
   ];
+  if (Number.isFinite(measures.ring) && Number(measures.ring) > 0) {
+    entries.unshift({ key: "ring", value: Number(measures.ring) });
+  }
   if (entries.some((e) => !Number.isFinite(e.value) || e.value <= 0)) return null;
 
   const values = entries.map((e) => e.value);
@@ -254,20 +268,29 @@ export type ExploreMeasurements = {
   ringCircMm: number | null;
   fingerCircMm: number | null;
   cameraCircMm: number | null;
+  /** True when the user skipped the ring step (no ring available) */
+  ringSkipped?: boolean;
+};
+
+const EMPTY_MEASUREMENTS: ExploreMeasurements = {
+  ringCircMm: null,
+  fingerCircMm: null,
+  cameraCircMm: null,
+  ringSkipped: false,
 };
 
 const EXPLORE_KEY = "airing.exploreMeasurements";
 
 export function loadExploreMeasurements(): ExploreMeasurements {
   if (typeof window === "undefined") {
-    return { ringCircMm: null, fingerCircMm: null, cameraCircMm: null };
+    return { ...EMPTY_MEASUREMENTS };
   }
   try {
     const raw = sessionStorage.getItem(EXPLORE_KEY);
-    if (!raw) return { ringCircMm: null, fingerCircMm: null, cameraCircMm: null };
-    return JSON.parse(raw) as ExploreMeasurements;
+    if (!raw) return { ...EMPTY_MEASUREMENTS };
+    return { ...EMPTY_MEASUREMENTS, ...(JSON.parse(raw) as ExploreMeasurements) };
   } catch {
-    return { ringCircMm: null, fingerCircMm: null, cameraCircMm: null };
+    return { ...EMPTY_MEASUREMENTS };
   }
 }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { AnimatePresence } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useMemo, useState } from "react";
 import { RingMark } from "@/components/RingMark";
 import { CalibrateStep } from "@/components/sizer/CalibrateStep";
@@ -16,12 +16,13 @@ import {
   clearExploreMeasurements,
   decideSize,
   findCircumferenceOutlier,
+  fitFromColor,
   loadExploreMeasurements,
   saveExploreMeasurements,
-  type CircClassification,
   type CircumferenceOutlier,
   type ExploreMeasurements,
   type FitLabel,
+  type MeasureClassification,
   type SizeVerdict,
 } from "@/lib/explore-flow";
 
@@ -53,14 +54,16 @@ export function ExploreFlow() {
     ringCircMm: null,
     fingerCircMm: null,
     cameraCircMm: null,
+    ringSkipped: false,
   });
   const [verdict, setVerdict] = useState<SizeVerdict | null>(null);
   const [classifications, setClassifications] = useState<
-    CircClassification[] | null
+    MeasureClassification[] | null
   >(null);
   const [hydrated, setHydrated] = useState(false);
   const [scanUrl, setScanUrl] = useState("/scan");
   const [copied, setCopied] = useState(false);
+  const [askHaveRing, setAskHaveRing] = useState(false);
 
   useEffect(() => {
     setCalibration(loadCalibration());
@@ -76,10 +79,21 @@ export function ExploreFlow() {
     saveExploreMeasurements(next);
   };
 
+  const goToRingStep = () => {
+    setAskHaveRing(true);
+    setStep("measure-ring");
+  };
+
   const finishRing = () => {
     const circ = +diameterToCircumference(diameterMm).toFixed(1);
-    persist({ ...measures, ringCircMm: circ });
+    persist({ ...measures, ringCircMm: circ, ringSkipped: false });
     setFingerCircMm(circ);
+    setStep("measure-finger");
+  };
+
+  const skipRing = () => {
+    setAskHaveRing(false);
+    persist({ ...measures, ringCircMm: null, ringSkipped: true });
     setStep("measure-finger");
   };
 
@@ -90,16 +104,22 @@ export function ExploreFlow() {
   };
 
   const showSize = () => {
-    const ring = Number(measures.ringCircMm);
     const finger = Number(measures.fingerCircMm);
     const camera = Number(measures.cameraCircMm);
-    if (![ring, finger, camera].every((v) => Number.isFinite(v) && v > 0)) return;
+    if (![finger, camera].every((v) => Number.isFinite(v) && v > 0)) return;
 
-    const { verdict: next, classifications: cls } = decideSize([
-      ring,
-      finger,
-      camera,
-    ]);
+    const inputs = [];
+    if (!measures.ringSkipped) {
+      const ring = Number(measures.ringCircMm);
+      if (!(Number.isFinite(ring) && ring > 0)) return;
+      inputs.push({ key: "ring" as const, circMm: ring });
+    }
+    inputs.push(
+      { key: "finger" as const, circMm: finger },
+      { key: "camera" as const, circMm: camera }
+    );
+
+    const { verdict: next, classifications: cls } = decideSize(inputs);
     setVerdict(next);
     setClassifications(cls);
     setStep("result");
@@ -107,9 +127,15 @@ export function ExploreFlow() {
 
   const restart = () => {
     clearExploreMeasurements();
-    setMeasures({ ringCircMm: null, fingerCircMm: null, cameraCircMm: null });
+    setMeasures({
+      ringCircMm: null,
+      fingerCircMm: null,
+      cameraCircMm: null,
+      ringSkipped: false,
+    });
     setVerdict(null);
     setClassifications(null);
+    setAskHaveRing(false);
     setStep("intro");
   };
 
@@ -124,7 +150,7 @@ export function ExploreFlow() {
   };
 
   const canSubmit =
-    Number(measures.ringCircMm) > 0 &&
+    (Boolean(measures.ringSkipped) || Number(measures.ringCircMm) > 0) &&
     Number(measures.fingerCircMm) > 0 &&
     Number(measures.cameraCircMm) > 0;
 
@@ -148,15 +174,15 @@ export function ExploreFlow() {
                   Let&apos;s explore your size
                 </h2>
                 <p className="mx-auto mt-3 max-w-md text-base leading-relaxed text-[var(--muted)]">
-                  Three measurements — ring on screen, paper strip, then camera
-                  on your phone — then we check each one against our fit zones
-                  to find your best size.
+                  Three measurements — a ring on screen if you have one, a
+                  paper strip, then the camera on your phone. Each one is
+                  checked against our fit zones, then we propose a size.
                 </p>
               </div>
 
               <div className="grid grid-cols-3 gap-3 text-left">
                 {[
-                  { n: "01", t: "Use a ring", d: "Match on screen" },
+                  { n: "01", t: "Use a ring", d: "Optional — skip if none" },
                   { n: "02", t: "Measure finger", d: "Paper strip" },
                   { n: "03", t: "Camera", d: "On your phone" },
                 ].map((item) => (
@@ -185,7 +211,7 @@ export function ExploreFlow() {
               {calibration && (
                 <button
                   type="button"
-                  onClick={() => setStep("measure-ring")}
+                  onClick={goToRingStep}
                   className="mono-label text-[var(--gold-deep)] underline underline-offset-4"
                 >
                   Skip — screen already calibrated
@@ -201,7 +227,7 @@ export function ExploreFlow() {
               initial={calibration}
               onSaved={setCalibration}
               onBack={() => setStep("intro")}
-              onContinue={() => setStep("measure-ring")}
+              onContinue={goToRingStep}
             />
           </StepFade>
         )}
@@ -216,6 +242,7 @@ export function ExploreFlow() {
               onRecalibrate={() => setStep("calibrate")}
               onSwitchFinger={() => {}}
               onResult={finishRing}
+              onSkip={skipRing}
               guided
               nextLabel="Next step"
             />
@@ -228,7 +255,7 @@ export function ExploreFlow() {
               calibration={calibration}
               circumferenceMm={fingerCircMm}
               onCircumferenceChange={setFingerCircMm}
-              onBack={() => setStep("measure-ring")}
+              onBack={goToRingStep}
               onRecalibrate={() => setStep("calibrate")}
               onSwitchRing={() => {}}
               onResult={finishFinger}
@@ -265,7 +292,76 @@ export function ExploreFlow() {
           </StepFade>
         )}
       </AnimatePresence>
+
+      <AnimatePresence>
+        {askHaveRing && (
+          <HaveRingDialog
+            onYes={() => setAskHaveRing(false)}
+            onSkip={skipRing}
+          />
+        )}
+      </AnimatePresence>
     </section>
+  );
+}
+
+function HaveRingDialog({
+  onYes,
+  onSkip,
+}: {
+  onYes: () => void;
+  onSkip: () => void;
+}) {
+  return (
+    <motion.div
+      className="fixed inset-0 z-[80] flex items-center justify-center bg-[rgba(23,18,13,0.55)] p-5"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.2 }}
+    >
+      <motion.div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="have-ring-title"
+        initial={{ opacity: 0, y: 16, scale: 0.97 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 8, scale: 0.98 }}
+        transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
+        className="w-full max-w-md rounded-[1.5rem] border border-[var(--border)] bg-[var(--surface)] px-7 py-8 text-center shadow-[0_28px_70px_-24px_rgba(23,18,13,0.5)]"
+      >
+        <div className="flex justify-center">
+          <RingMark size={56} />
+        </div>
+        <h3
+          id="have-ring-title"
+          className="mt-5 font-[family-name:var(--font-display)] text-[28px] leading-tight text-[var(--ink)]"
+        >
+          Do you have a ring?
+        </h3>
+        <p className="mx-auto mt-3 max-w-sm text-sm leading-relaxed text-[var(--muted)]">
+          If a ring already fits this finger, we can match it on screen. If you
+          don&apos;t have one, skip this step — it won&apos;t count in your
+          size.
+        </p>
+        <div className="mt-7 flex flex-col gap-3">
+          <button
+            type="button"
+            onClick={onYes}
+            className="gold-fill w-full rounded-xl px-5 py-3.5 text-base font-medium text-[var(--ink)] shadow-[inset_0_1px_0_rgba(255,255,255,0.4)] transition-[filter] hover:brightness-[1.04]"
+          >
+            Yes, I have a ring
+          </button>
+          <button
+            type="button"
+            onClick={onSkip}
+            className="w-full rounded-xl border-2 border-[var(--ink)] bg-[var(--surface)] px-5 py-3.5 text-base font-medium text-[var(--ink)] transition-colors hover:bg-[var(--surface-2)]"
+          >
+            I don&apos;t have a ring — skip
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
   );
 }
 
@@ -337,29 +433,73 @@ function CollectStep({
   onSubmit: () => void;
 }) {
   const outlier = useMemo((): CircumferenceOutlier | null => {
-    const ring = Number(measures.ringCircMm);
     const finger = Number(measures.fingerCircMm);
     const camera = Number(measures.cameraCircMm);
-    if (![ring, finger, camera].every((v) => Number.isFinite(v) && v > 0)) {
+    if (![finger, camera].every((v) => Number.isFinite(v) && v > 0)) {
       return null;
     }
+    const ring =
+      measures.ringSkipped || !(Number(measures.ringCircMm) > 0)
+        ? null
+        : Number(measures.ringCircMm);
     return findCircumferenceOutlier({ ring, finger, camera });
-  }, [measures.ringCircMm, measures.fingerCircMm, measures.cameraCircMm]);
+  }, [
+    measures.ringCircMm,
+    measures.fingerCircMm,
+    measures.cameraCircMm,
+    measures.ringSkipped,
+  ]);
 
   return (
     <div className="space-y-6">
-      <StepHeading title="Combine your three measures">
+      <StepHeading title="Combine your measures">
         Enter each circumference in millimetres. Finish the camera scan on your
-        phone, then type the Circ value here.
+        phone, then type the Circ value here. Skip the ring if you don&apos;t
+        have one.
       </StepHeading>
 
-      <CircInput
-        label="1 · Using a ring"
-        hint="From the screen ring match"
-        value={measures.ringCircMm}
-        onChange={(v) => onChange({ ...measures, ringCircMm: v })}
-        highlight={outlier?.key === "ring"}
-      />
+      {measures.ringSkipped ? (
+        <div className="rounded-2xl border border-dashed border-[var(--border)] bg-[var(--surface-2)] p-4">
+          <p className="mono-label text-[var(--muted)]">1 · Using a ring</p>
+          <p className="mt-2 font-[family-name:var(--font-display)] text-xl text-[var(--ink)]">
+            Skipped
+          </p>
+          <p className="mt-1 text-sm text-[var(--muted)]">
+            You don&apos;t have a ring — this measure won&apos;t be used in
+            your size result.
+          </p>
+          <button
+            type="button"
+            onClick={() =>
+              onChange({ ...measures, ringSkipped: false, ringCircMm: null })
+            }
+            className="mono-label mt-3 text-[var(--gold-deep)] underline underline-offset-4"
+          >
+            I have a ring — enter a value
+          </button>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <CircInput
+            label="1 · Using a ring"
+            hint="From the screen ring match"
+            value={measures.ringCircMm}
+            onChange={(v) =>
+              onChange({ ...measures, ringCircMm: v, ringSkipped: false })
+            }
+            highlight={outlier?.key === "ring"}
+          />
+          <button
+            type="button"
+            onClick={() =>
+              onChange({ ...measures, ringCircMm: null, ringSkipped: true })
+            }
+            className="w-full rounded-xl border-2 border-[var(--ink)] bg-[var(--surface)] px-4 py-3 text-sm font-medium text-[var(--ink)] transition-colors hover:bg-[var(--surface-2)]"
+          >
+            I don&apos;t have a ring — skip
+          </button>
+        </div>
+      )}
       <CircInput
         label="2 · Measure finger"
         hint="From the paper strip ruler"
@@ -498,7 +638,7 @@ function CircInput({
 const FIT_COPY: Record<FitLabel, { title: string; message: string }> = {
   perfect: {
     title: "Perfect",
-    message: "All three measures agree — this size fits you perfectly.",
+    message: "Your measures agree — this size fits you perfectly.",
   },
   tight: {
     title: "Tight",
@@ -519,12 +659,18 @@ const FIT_COPY: Record<FitLabel, { title: string; message: string }> = {
 };
 
 const ZONE_STYLE: Record<
-  CircClassification["color"],
+  MeasureClassification["color"],
   { chip: string; label: string }
 > = {
-  green: { chip: "bg-emerald-600", label: "Green · ok" },
-  red: { chip: "bg-red-500", label: "Red · loose" },
-  black: { chip: "bg-neutral-900", label: "Black · tight" },
+  green: { chip: "bg-emerald-600", label: "Ok" },
+  red: { chip: "bg-red-500", label: "Loose" },
+  black: { chip: "bg-neutral-900", label: "Tight" },
+};
+
+const EXPERIENCE_FIT: Record<"ok" | "loose" | "tight", string> = {
+  ok: "Ok",
+  loose: "Loose",
+  tight: "Tight",
 };
 
 function ExploreResult({
@@ -535,90 +681,135 @@ function ExploreResult({
   onBack,
 }: {
   verdict: SizeVerdict;
-  classifications: CircClassification[] | null;
+  classifications: MeasureClassification[] | null;
   measures: ExploreMeasurements;
   onRestart: () => void;
   onBack: () => void;
 }) {
-  const cards = [
-    { l: "Ring", v: measures.ringCircMm, cls: classifications?.[0] },
-    { l: "Finger", v: measures.fingerCircMm, cls: classifications?.[1] },
-    { l: "Camera", v: measures.cameraCircMm, cls: classifications?.[2] },
+  const byKey = new Map((classifications ?? []).map((c) => [c.key, c]));
+  const usedCount = classifications?.length ?? 0;
+  const experiences = [
+    {
+      key: "ring" as const,
+      label: "Ring",
+      value: measures.ringCircMm,
+      skipped: Boolean(measures.ringSkipped),
+    },
+    {
+      key: "finger" as const,
+      label: "Finger",
+      value: measures.fingerCircMm,
+      skipped: false,
+    },
+    {
+      key: "camera" as const,
+      label: "Camera",
+      value: measures.cameraCircMm,
+      skipped: false,
+    },
   ];
 
   return (
     <div className="space-y-6">
       <StepHeading title="Your size result">
-        Each measure is checked against the fit zones of our sizes — US 6 · 8 ·
-        10 · 12.
+        Each completed measure is checked against the fit zones of our sizes —
+        US 6 · 8 · 10 · 12.
       </StepHeading>
 
-      <div className="rounded-2xl border border-[var(--border)] bg-[var(--stage)] px-6 py-10 text-center">
+      <div className="rounded-2xl border border-[var(--border)] bg-[var(--stage)] px-4 py-8 sm:px-6">
+        <p className="mono-label mb-6 text-center text-[var(--gold-light)]">
+          Experience results
+        </p>
+        <div className="grid grid-cols-3 gap-2 sm:gap-4">
+          {experiences.map((exp) => {
+            const cls = byKey.get(exp.key);
+            const skipped = exp.skipped || !cls;
+            return (
+              <div key={exp.key} className="text-center">
+                <p className="mono-label text-[#8c7c66]">{exp.label}</p>
+                {skipped ? (
+                  <>
+                    <p className="mt-3 font-[family-name:var(--font-display)] text-xl text-white/55 sm:text-2xl">
+                      Skipped
+                    </p>
+                    <p className="mt-2 text-xs leading-relaxed text-[#8c7c66]">
+                      No size result
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="mt-3 font-[family-name:var(--font-display)] text-3xl text-[var(--gold-light)] sm:text-4xl">
+                      US {cls.us}
+                    </p>
+                    <p className="mt-2 font-[family-name:var(--font-display)] text-lg text-white">
+                      {EXPERIENCE_FIT[fitFromColor(cls.color)]}
+                    </p>
+                    <p className="mono mt-2 text-[11px] text-[#8c7c66]">
+                      {formatMm(exp.value ?? cls.circMm)} mm
+                    </p>
+                    <p className="mt-2 flex items-center justify-center gap-1.5">
+                      <span
+                        className={`inline-block h-2.5 w-2.5 rounded-full ${ZONE_STYLE[cls.color].chip}`}
+                        aria-hidden
+                      />
+                      <span className="mono text-[10px] text-[#8c7c66]">
+                        {ZONE_STYLE[cls.color].label}
+                      </span>
+                    </p>
+                  </>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-6 py-8 text-center">
         {verdict.status === "size" && (
           <>
-            <p className="mono-label text-[var(--gold-light)]">Your size</p>
-            <p className="mt-2 font-[family-name:var(--font-display)] text-6xl text-[var(--gold-light)]">
+            <p className="mono-label text-[var(--gold-deep)]">
+              Based on {usedCount} measure{usedCount === 1 ? "" : "s"} we
+              propose
+            </p>
+            <p className="mt-2 font-[family-name:var(--font-display)] text-5xl text-[var(--gold)] sm:text-6xl">
               US {verdict.us}
             </p>
-            <p className="mt-4 font-[family-name:var(--font-display)] text-2xl text-white">
+            <p className="mt-3 font-[family-name:var(--font-display)] text-2xl text-[var(--ink)]">
               {FIT_COPY[verdict.fit].title}
             </p>
-            <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-[#8c7c66]">
+            <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-[var(--muted)]">
               {FIT_COPY[verdict.fit].message}
             </p>
           </>
         )}
         {verdict.status === "remeasure" && (
           <>
-            <p className="mono-label text-[var(--gold-light)]">
-              Measures don&apos;t agree
+            <p className="mono-label text-[var(--gold-deep)]">
+              Based on {usedCount} measure{usedCount === 1 ? "" : "s"}
             </p>
-            <p className="mt-3 font-[family-name:var(--font-display)] text-3xl text-white">
+            <p className="mt-3 font-[family-name:var(--font-display)] text-3xl text-[var(--ink)]">
               Choose another finger and remeasure
             </p>
-            <p className="mx-auto mt-3 max-w-sm text-sm leading-relaxed text-[#8c7c66]">
-              Your three values don&apos;t point to a good fit. Please choose
-              another finger and remeasure — thank you.
+            <p className="mx-auto mt-3 max-w-sm text-sm leading-relaxed text-[var(--muted)]">
+              Your values don&apos;t point to a good fit. Please choose another
+              finger and remeasure — thank you.
             </p>
           </>
         )}
         {verdict.status === "unavailable" && (
           <>
-            <p className="mono-label text-[var(--gold-light)]">Out of range</p>
-            <p className="mt-3 font-[family-name:var(--font-display)] text-3xl text-white">
+            <p className="mono-label text-[var(--gold-deep)]">
+              Based on {usedCount} measure{usedCount === 1 ? "" : "s"}
+            </p>
+            <p className="mt-3 font-[family-name:var(--font-display)] text-3xl text-[var(--ink)]">
               Your size is not available
             </p>
-            <p className="mx-auto mt-3 max-w-sm text-sm leading-relaxed text-[#8c7c66]">
+            <p className="mx-auto mt-3 max-w-sm text-sm leading-relaxed text-[var(--muted)]">
               Your measures are below our smallest size. Available sizes are US
               6 · 8 · 10 · 12 only.
             </p>
           </>
         )}
-      </div>
-
-      <div className="grid grid-cols-3 gap-2">
-        {cards.map((c) => (
-          <div
-            key={c.l}
-            className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-2 py-3 text-center"
-          >
-            <p className="mono-label text-[var(--muted)]">{c.l}</p>
-            <p className="mt-1 font-[family-name:var(--font-display)] text-lg">
-              {c.v != null ? `${formatMm(c.v)} mm` : "—"}
-            </p>
-            {c.cls && (
-              <p className="mt-1.5 flex items-center justify-center gap-1.5">
-                <span
-                  className={`inline-block h-2.5 w-2.5 rounded-full ${ZONE_STYLE[c.cls.color].chip}`}
-                  aria-hidden
-                />
-                <span className="mono text-[10px] text-[var(--muted)]">
-                  {ZONE_STYLE[c.cls.color].label}
-                </span>
-              </p>
-            )}
-          </div>
-        ))}
       </div>
 
       <div className="flex gap-3">

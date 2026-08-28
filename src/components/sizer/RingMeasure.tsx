@@ -32,6 +32,8 @@ type Props = {
   /** Guided explore: hide mode toggle, custom continue label */
   guided?: boolean;
   nextLabel?: string;
+  onSkip?: () => void;
+  skipLabel?: string;
 };
 
 const MIN_MM = 12;
@@ -114,6 +116,8 @@ export function RingMeasure({
   onResult,
   guided = false,
   nextLabel = "Next step",
+  onSkip,
+  skipLabel = "I don't have a ring — skip",
 }: Props) {
   const [styleId, setStyleId] = useState<RingStyleId>("classic");
   const style = getRingStyle(styleId);
@@ -252,6 +256,15 @@ export function RingMeasure({
       </div>
 
       <StepNav onBack={onBack} onNext={onResult} nextLabel={nextLabel} />
+      {onSkip && (
+        <button
+          type="button"
+          onClick={onSkip}
+          className="w-full rounded-xl border-2 border-[var(--ink)] bg-[var(--surface)] px-4 py-3 text-sm font-medium text-[var(--ink)] transition-colors hover:bg-[var(--surface-2)]"
+        >
+          {skipLabel}
+        </button>
+      )}
     </div>
   );
 }

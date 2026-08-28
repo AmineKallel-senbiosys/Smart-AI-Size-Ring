@@ -136,6 +136,33 @@ input[type="range"]::-moz-range-thumb {
   cursor: pointer;
 }
 
+/* Camera adjust — larger touch target, smoother drag on phone */
+.camera-range {
+  height: 44px;
+  touch-action: pan-y;
+}
+
+.camera-range::-webkit-slider-runnable-track {
+  height: 4px;
+}
+
+.camera-range::-moz-range-track {
+  height: 4px;
+}
+
+.camera-range::-webkit-slider-thumb {
+  margin-top: -9px;
+  height: 22px;
+  width: 22px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+
+.camera-range::-moz-range-thumb {
+  height: 22px;
+  width: 22px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+
 @keyframes pulse-ring {
   0%,
   100% {

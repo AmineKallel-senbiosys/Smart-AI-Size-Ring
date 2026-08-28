@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
+  type WheelEvent as ReactWheelEvent,
 } from "react";
 import { createPortal, flushSync } from "react-dom";
 import {
@@ -48,6 +49,13 @@ type MeasureMode = "ring" | "finger";
 const MIN_DIAM_MM = 12;
 const MAX_DIAM_MM = 24;
 const DEFAULT_DIAM_MM = 17.3;
+const MIN_PHOTO_ZOOM = 1;
+const MAX_PHOTO_ZOOM = 4;
+/** Finger circle size on photo (% of frame width) — adjust step UI */
+const FINGER_CIRCLE_MIN_PCT = 3;
+const FINGER_CIRCLE_MAX_PCT = 24;
+const FINGER_CIRCLE_STEP = 0.02;
+const FINGER_CIRCLE_NUDGE = 0.05;
 
 export function CameraScan() {
   const { videoRef, status, error, start, stop, capture } = useCamera();
@@ -62,6 +70,7 @@ export function CameraScan() {
 
   const [card, setCard] = useState({ x: 68, y: 58, w: 42 });
   const [circle, setCircle] = useState({ x: 32, y: 58, d: 14 });
+  const [photoZoom, setPhotoZoom] = useState(1);
   const [photoAspect, setPhotoAspect] = useState(3 / 4);
   const [portalMounted, setPortalMounted] = useState(false);
 
@@ -70,8 +79,12 @@ export function CameraScan() {
   const [distCm, setDistCm] = useState<number | null>(null);
   const [tiltDeg, setTiltDeg] = useState<number | null>(null);
   const [tiltRoll, setTiltRoll] = useState(0);
+  const [tiltPitch, setTiltPitch] = useState(0);
 
   const stageRef = useRef<HTMLDivElement>(null);
+  const photoZoomRef = useRef(1);
+  const pinchRef = useRef<{ startDist: number; startZoom: number } | null>(null);
+  const pinchPointers = useRef(new Map<number, { x: number; y: number }>());
   const [stageW, setStageW] = useState(320);
   const [stageH, setStageH] = useState(480);
   const [countdown, setCountdown] = useState<number | null>(null);
@@ -110,6 +123,18 @@ export function CameraScan() {
       document.body.style.overflow = prev;
     };
   }, [isFullscreen]);
+
+  useEffect(() => {
+    photoZoomRef.current = photoZoom;
+  }, [photoZoom]);
+
+  useEffect(() => {
+    if (step !== "align") {
+      setPhotoZoom(1);
+      pinchRef.current = null;
+      pinchPointers.current.clear();
+    }
+  }, [step]);
 
   useEffect(() => {
     const el = stageRef.current;
@@ -155,6 +180,61 @@ export function CameraScan() {
     [cover, stageW]
   );
 
+  const circleOnStage = photoToStage(circle.x, circle.y, circle.d);
+
+  const nudgePhotoZoom = useCallback((delta: number) => {
+    setPhotoZoom((z) =>
+      Math.round(clamp(z + delta, MIN_PHOTO_ZOOM, MAX_PHOTO_ZOOM) * 10) / 10
+    );
+  }, []);
+
+  const onPinchPointerDown = useCallback(
+    (e: ReactPointerEvent<HTMLDivElement>) => {
+      if (step !== "align") return;
+      pinchPointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    },
+    [step]
+  );
+
+  const onPinchPointerMove = useCallback(
+    (e: ReactPointerEvent<HTMLDivElement>) => {
+      if (step !== "align") return;
+      if (!pinchPointers.current.has(e.pointerId)) return;
+      pinchPointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pinchPointers.current.size < 2) return;
+      const pts = [...pinchPointers.current.values()];
+      const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+      if (dist < 8) return;
+      if (!pinchRef.current) {
+        pinchRef.current = { startDist: dist, startZoom: photoZoomRef.current };
+        return;
+      }
+      const next =
+        pinchRef.current.startZoom * (dist / pinchRef.current.startDist);
+      setPhotoZoom(clamp(next, MIN_PHOTO_ZOOM, MAX_PHOTO_ZOOM));
+    },
+    [step]
+  );
+
+  const onPinchPointerUp = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
+    pinchPointers.current.delete(e.pointerId);
+    if (pinchPointers.current.size < 2) pinchRef.current = null;
+  }, []);
+
+  const onPhotoWheel = useCallback(
+    (e: ReactWheelEvent<HTMLDivElement>) => {
+      if (step !== "align") return;
+      e.preventDefault();
+      nudgePhotoZoom(e.deltaY < 0 ? 0.2 : -0.2);
+    },
+    [step, nudgePhotoZoom]
+  );
+
+  const applyAdjust = useCallback(() => {
+    setPhotoZoom(1);
+    setStep("preview");
+  }, []);
+
   // Phone tilt — 0° means the phone is flat, camera looking straight down,
   // i.e. perpendicular to the hand and card on the table.
   useEffect(() => {
@@ -162,7 +242,8 @@ export function CameraScan() {
     const onOrientation = (e: DeviceOrientationEvent) => {
       if (e.beta == null || e.gamma == null) return;
       setTiltDeg(Math.round(Math.min(90, Math.hypot(e.beta, e.gamma))));
-      // Left–right roll drives the spirit-level line offset (like iOS Camera).
+      // Pitch (front–back) and roll (left–right) drive the two + marks.
+      setTiltPitch(Math.max(-45, Math.min(45, e.beta)));
       setTiltRoll(Math.max(-45, Math.min(45, e.gamma)));
     };
     window.addEventListener("deviceorientation", onOrientation);
@@ -567,7 +648,7 @@ export function CameraScan() {
       setCircle({
         x: fingerSeed.xPct,
         y: fingerSeed.yPct,
-        d: clamp(fingerSeed.dPct, 5, 18),
+        d: clamp(fingerSeed.dPct, FINGER_CIRCLE_MIN_PCT, FINGER_CIRCLE_MAX_PCT),
       });
     } else {
       const baseW = cardSeed?.wPct ?? 42;
@@ -718,9 +799,10 @@ export function CameraScan() {
                     <>
                       <div className="pointer-events-none absolute inset-0">
                         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_55%,rgba(0,0,0,0.35)_100%)]" />
-                        <LevelCalibrationLine
-                          tiltDeg={tiltDeg}
+                        <LevelCrosshairs
+                          pitchDeg={tiltPitch}
                           rollDeg={tiltRoll}
+                          ready={tiltDeg != null}
                         />
                         {!liveFinger && (
                           <div className="absolute bottom-[22%] left-[8%] w-[32%] opacity-50">
@@ -841,37 +923,94 @@ export function CameraScan() {
                   <div
                     ref={stageRef}
                     className="absolute inset-0 touch-none select-none overflow-hidden"
+                    onWheel={onPhotoWheel}
                   >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={photo}
-                      alt="Captured sizing photo"
-                      className="pointer-events-none absolute inset-0 h-full w-full object-cover"
-                      draggable={false}
-                    />
-                    <CardOverlay
-                      xPct={photoToStage(card.x, card.y, card.w).x}
-                      yPct={photoToStage(card.x, card.y, card.w).y}
-                      wPct={photoToStage(card.x, card.y, card.w).size}
-                      onMove={(x, y) =>
-                        setCard((c) => ({ ...c, ...stageToPhotoXY(x, y) }))
-                      }
-                      onResize={(w) =>
-                        setCard((c) => ({ ...c, w: stageToPhotoSize(w) }))
-                      }
-                    />
-                    <CircleOverlay
-                      xPct={photoToStage(circle.x, circle.y, circle.d).x}
-                      yPct={photoToStage(circle.x, circle.y, circle.d).y}
-                      dPct={photoToStage(circle.x, circle.y, circle.d).size}
-                      onMove={(x, y) =>
-                        setCircle((c) => ({ ...c, ...stageToPhotoXY(x, y) }))
-                      }
-                      onResize={(d) =>
-                        setCircle((c) => ({ ...c, d: stageToPhotoSize(d) }))
-                      }
-                    />
+                    <div
+                      className="absolute inset-0"
+                      style={{
+                        transform:
+                          step === "align" && photoZoom > 1
+                            ? `scale(${photoZoom})`
+                            : undefined,
+                        transformOrigin: `${circleOnStage.x}% ${circleOnStage.y}%`,
+                      }}
+                      onPointerDown={onPinchPointerDown}
+                      onPointerMove={onPinchPointerMove}
+                      onPointerUp={onPinchPointerUp}
+                      onPointerCancel={onPinchPointerUp}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={photo}
+                        alt="Captured sizing photo"
+                        className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+                        draggable={false}
+                      />
+                      {step === "align" && (
+                        <CardOverlay
+                          xPct={photoToStage(card.x, card.y, card.w).x}
+                          yPct={photoToStage(card.x, card.y, card.w).y}
+                          wPct={photoToStage(card.x, card.y, card.w).size}
+                          onMove={(x, y) =>
+                            setCard((c) => ({ ...c, ...stageToPhotoXY(x, y) }))
+                          }
+                          onResize={(w) =>
+                            setCard((c) => ({ ...c, w: stageToPhotoSize(w) }))
+                          }
+                        />
+                      )}
+                      {step === "preview" && (
+                        <div
+                          className="absolute z-10"
+                          style={{
+                            left: `${photoToStage(card.x, card.y, card.w).x}%`,
+                            top: `${photoToStage(card.x, card.y, card.w).y}%`,
+                            width: `${photoToStage(card.x, card.y, card.w).size}%`,
+                            aspectRatio: `${CARD_WIDTH_MM} / ${CARD_HEIGHT_MM}`,
+                            transform: "translate(-50%, -50%)",
+                            pointerEvents: "none",
+                          }}
+                        >
+                          <div className="absolute inset-0 rounded-[5px] border-[2.5px] border-[var(--accent-glow)]/60 bg-[var(--accent)]/10" />
+                        </div>
+                      )}
+                      <CircleOverlay
+                        xPct={circleOnStage.x}
+                        yPct={circleOnStage.y}
+                        dPct={circleOnStage.size}
+                        onMove={(x, y) =>
+                          setCircle((c) => ({ ...c, ...stageToPhotoXY(x, y) }))
+                        }
+                        interactive={step === "align"}
+                      />
+                    </div>
                   </div>
+
+                  {step === "align" && (
+                    <div className="absolute right-3 top-1/2 z-30 flex -translate-y-1/2 flex-col items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => nudgePhotoZoom(0.5)}
+                        disabled={photoZoom >= MAX_PHOTO_ZOOM}
+                        className="flex h-11 w-11 items-center justify-center rounded-full bg-black/55 text-2xl leading-none text-white backdrop-blur-sm disabled:opacity-35"
+                        aria-label="Zoom in"
+                      >
+                        +
+                      </button>
+                      <span className="mono rounded-full bg-black/55 px-2 py-1 text-[10px] text-white/80 backdrop-blur-sm">
+                        {photoZoom.toFixed(1)}×
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => nudgePhotoZoom(-0.5)}
+                        disabled={photoZoom <= MIN_PHOTO_ZOOM}
+                        className="flex h-11 w-11 items-center justify-center rounded-full bg-black/55 text-2xl leading-none text-white backdrop-blur-sm disabled:opacity-35"
+                        aria-label="Zoom out"
+                      >
+                        −
+                      </button>
+                    </div>
+                  )}
 
                   <div className="camera-safe-top absolute inset-x-0 top-0 z-20 flex items-center justify-between px-4 pt-3">
                     <button
@@ -886,7 +1025,7 @@ export function CameraScan() {
                       ×
                     </button>
                     <p className="rounded-full bg-black/45 px-3 py-1.5 text-xs font-medium text-white backdrop-blur-sm">
-                      {step === "preview" ? "Your measure" : "Fine-tune"}
+                      {step === "preview" ? "Your measure" : "Adjust finger"}
                     </p>
                     <span className="w-10" aria-hidden />
                   </div>
@@ -947,7 +1086,7 @@ export function CameraScan() {
                           onClick={() => setStep("align")}
                           className="flex-1 rounded-xl border border-white/25 bg-white/10 py-3 text-sm font-medium text-white backdrop-blur-sm"
                         >
-                          Fine-tune
+                          Adjust finger
                         </button>
                         <button
                           type="button"
@@ -960,68 +1099,35 @@ export function CameraScan() {
                     </>
                   ) : (
                     <>
-                      <div className="mb-3 grid grid-cols-2 gap-3">
-                        <div>
-                          <label className="mono-label text-white/55">
-                            Card width
-                          </label>
-                          <input
-                            type="range"
-                            min={18}
-                            max={70}
-                            step={0.2}
-                            value={card.w}
-                            onChange={(e) =>
-                              setCard((c) => ({ ...c, w: +e.target.value }))
-                            }
-                            className="mt-2 h-4 w-full"
-                          />
-                        </div>
-                        <div>
-                          <label className="mono-label text-white/55">
-                            {mode === "ring" ? "Ring hole" : "Finger width"}
-                          </label>
-                          <input
-                            type="range"
-                            min={5}
-                            max={20}
-                            step={0.1}
-                            value={circle.d}
-                            onChange={(e) =>
-                              setCircle((c) => ({ ...c, d: +e.target.value }))
-                            }
-                            className="mt-2 h-4 w-full"
-                          />
-                        </div>
-                      </div>
-                      <div className="flex items-end justify-between rounded-xl border border-white/15 bg-black/55 px-4 py-3 backdrop-blur-md">
-                        <div>
-                          <p className="mono-label text-[var(--gold-light)]">
-                            Circumference
-                          </p>
-                          <p className="font-[family-name:var(--font-display)] text-3xl font-bold text-[var(--gold-light)]">
-                            {formatMm(circumferenceMm)}
-                            <span className="ml-1.5 text-base font-normal text-white/70">
-                              mm
-                            </span>
-                          </p>
-                        </div>
-                        <p className="mono text-right text-[10px] text-white/45">
-                          Ø {formatMm(diameterMm, 2)} mm
-                        </p>
-                      </div>
+                      <FingerAdjustPanel
+                        circleD={circle.d}
+                        circumferenceMm={circumferenceMm}
+                        diameterMm={diameterMm}
+                        cardW={card.w}
+                        onCircleD={(d) =>
+                          setCircle((c) => ({
+                            ...c,
+                            d: clamp(
+                              d,
+                              FINGER_CIRCLE_MIN_PCT,
+                              FINGER_CIRCLE_MAX_PCT
+                            ),
+                          }))
+                        }
+                        onCardW={(w) => setCard((c) => ({ ...c, w }))}
+                      />
                       <div className="mt-4 flex gap-3">
                         <button
                           type="button"
-                          onClick={() => setStep("preview")}
-                          className="flex-1 rounded-xl border border-white/25 bg-white/10 py-3 text-sm text-white"
+                          onClick={applyAdjust}
+                          className="gold-fill flex-1 rounded-xl py-3 text-sm font-medium text-[var(--ink)] shadow-[inset_0_1px_0_rgba(255,255,255,0.4)]"
                         >
-                          Back
+                          Apply
                         </button>
                         <button
                           type="button"
                           onClick={finish}
-                          className="gold-fill flex-1 rounded-xl py-3 text-sm font-medium text-[var(--ink)] shadow-[inset_0_1px_0_rgba(255,255,255,0.4)]"
+                          className="flex-1 rounded-xl border border-white/25 bg-white/10 py-3 text-sm font-medium text-white"
                         >
                           Save size
                         </button>
@@ -1262,69 +1368,110 @@ function CaptureGuide({ staticPreview = false }: { staticPreview?: boolean }) {
 }
 
 /**
- * Apple Camera-style spirit level.
- * Two fixed white side dashes + a center segment that rotates with roll.
- * Within ~2.5° everything merges into one yellow line, then fades away.
+ * iPhone Camera-style top-down level: a fixed white + in the centre and a
+ * moving yellow + driven by pitch/roll. When they overlap, they merge into
+ * one yellow + to show the phone is flat over the table.
  */
-function LevelCalibrationLine({
-  tiltDeg,
+function LevelCrosshairs({
+  pitchDeg,
   rollDeg,
+  ready,
 }: {
-  tiltDeg: number | null;
+  pitchDeg: number;
   rollDeg: number;
+  ready: boolean;
 }) {
-  const leveled = tiltDeg != null && Math.abs(rollDeg) <= 2.5;
+  const RANGE_DEG = 18;
+  const MAX_PX = 58;
+  const ALIGN_DEG = 1.8;
+
+  const aligned = ready && Math.hypot(pitchDeg, rollDeg) <= ALIGN_DEG;
   const [faded, setFaded] = useState(false);
 
-  // Fade the line out ~0.8s after leveling (like iOS), reappear on tilt.
   useEffect(() => {
-    if (!leveled) {
+    if (!aligned) {
       setFaded(false);
       return;
     }
-    const t = setTimeout(() => setFaded(true), 800);
+    const t = setTimeout(() => setFaded(true), 1000);
     return () => clearTimeout(t);
-  }, [leveled]);
+  }, [aligned]);
 
-  if (tiltDeg == null) return null;
+  if (!ready) return null;
 
-  const rotate = leveled ? 0 : Math.max(-30, Math.min(30, -rollDeg));
-  const white = "rgba(255,255,255,0.9)";
-  const yellow = "#ffcc00";
-  const color = leveled ? yellow : white;
+  const nx = Math.max(-1, Math.min(1, rollDeg / RANGE_DEG));
+  const ny = Math.max(-1, Math.min(1, pitchDeg / RANGE_DEG));
+  const x = aligned ? 0 : nx * MAX_PX;
+  const y = aligned ? 0 : ny * MAX_PX;
+
+  const yellow = "#ffd60a";
+  const white = "rgba(255,255,255,0.95)";
 
   return (
     <div
-      className="pointer-events-none absolute left-1/2 top-1/2 z-[6] h-6 w-[176px] -translate-x-1/2 -translate-y-1/2 transition-opacity duration-500"
+      className="pointer-events-none absolute left-1/2 top-1/2 z-[6] -translate-x-1/2 -translate-y-1/2 transition-opacity duration-500"
       style={{ opacity: faded ? 0 : 1 }}
       aria-hidden
     >
-      {/* Left dash (fixed) */}
-      <span
-        className="absolute left-0 top-1/2 h-[1.5px] w-[30px] -translate-y-1/2 transition-colors duration-150"
-        style={{
-          background: color,
-          boxShadow: "0 0 3px rgba(0,0,0,0.5)",
-        }}
+      {/* Fixed centre target */}
+      <PlusMark
+        color={aligned ? yellow : white}
+        size={aligned ? 18 : 16}
+        thickness={aligned ? 2.4 : 2}
       />
-      {/* Right dash (fixed) */}
-      <span
-        className="absolute right-0 top-1/2 h-[1.5px] w-[30px] -translate-y-1/2 transition-colors duration-150"
-        style={{
-          background: color,
-          boxShadow: "0 0 3px rgba(0,0,0,0.5)",
-        }}
-      />
-      {/* Center segment — rotates with roll, snaps yellow when level */}
-      <span
-        className="absolute left-1/2 top-1/2 h-[1.5px] w-[92px] transition-colors duration-150"
-        style={{
-          background: color,
-          boxShadow: "0 0 3px rgba(0,0,0,0.5)",
-          transform: `translate(-50%, -50%) rotate(${rotate}deg)`,
-        }}
-      />
+      {/* Moving + — hidden once snapped together */}
+      {!aligned && (
+        <span
+          className="absolute left-1/2 top-1/2"
+          style={{
+            width: 16,
+            height: 16,
+            marginLeft: -8,
+            marginTop: -8,
+            transform: `translate(${x}px, ${y}px)`,
+          }}
+        >
+          <PlusMark color={yellow} size={16} thickness={2} />
+        </span>
+      )}
     </div>
+  );
+}
+
+function PlusMark({
+  color,
+  size,
+  thickness,
+}: {
+  color: string;
+  size: number;
+  thickness: number;
+}) {
+  const shadow = "0 0 3px rgba(0,0,0,0.55)";
+  return (
+    <span
+      className="relative block"
+      style={{ width: size, height: size }}
+    >
+      <span
+        className="absolute left-0 top-1/2 -translate-y-1/2 rounded-full"
+        style={{
+          width: size,
+          height: thickness,
+          background: color,
+          boxShadow: shadow,
+        }}
+      />
+      <span
+        className="absolute left-1/2 top-0 -translate-x-1/2 rounded-full"
+        style={{
+          width: thickness,
+          height: size,
+          background: color,
+          boxShadow: shadow,
+        }}
+      />
+    </span>
   );
 }
 
@@ -1616,21 +1763,119 @@ function CardOverlay({
   );
 }
 
+function FingerAdjustPanel({
+  circleD,
+  circumferenceMm,
+  diameterMm,
+  cardW,
+  onCircleD,
+  onCardW,
+}: {
+  circleD: number;
+  circumferenceMm: number;
+  diameterMm: number;
+  cardW: number;
+  onCircleD: (d: number) => void;
+  onCardW: (w: number) => void;
+}) {
+  const nudge = (delta: number) => {
+    onCircleD(
+      clamp(
+        +(circleD + delta).toFixed(2),
+        FINGER_CIRCLE_MIN_PCT,
+        FINGER_CIRCLE_MAX_PCT
+      )
+    );
+  };
+
+  return (
+    <div className="space-y-3">
+      <p className="mono text-center text-[10px] tracking-wider text-white/50">
+        DRAG THE CIRCLE · PINCH OR USE + / − TO ZOOM
+      </p>
+
+      <div className="rounded-2xl border border-white/15 bg-black/55 px-4 py-5 text-center backdrop-blur-md">
+        <p className="mono-label text-[var(--gold-light)]">Your measure</p>
+        <p className="mt-1 font-[family-name:var(--font-display)] text-5xl font-bold leading-none text-[var(--gold-light)]">
+          {formatMm(circumferenceMm)}
+          <span className="ml-2 text-xl font-normal text-white/70">mm</span>
+        </p>
+        <p className="mono mt-2 text-[11px] text-white/45">
+          Circumference · Ø {formatMm(diameterMm, 2)} mm
+        </p>
+      </div>
+
+      <div className="rounded-2xl border border-white/15 bg-black/45 px-3 py-4 backdrop-blur-md">
+        <p className="mono-label mb-3 text-center text-white/55">
+          Finger width
+        </p>
+        <div className="flex items-center gap-2.5">
+          <button
+            type="button"
+            aria-label="Make finger circle narrower"
+            onClick={() => nudge(-FINGER_CIRCLE_NUDGE)}
+            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-white/30 bg-white/10 text-2xl leading-none text-white transition-colors active:bg-white/20"
+          >
+            −
+          </button>
+          <input
+            type="range"
+            min={FINGER_CIRCLE_MIN_PCT}
+            max={FINGER_CIRCLE_MAX_PCT}
+            step={FINGER_CIRCLE_STEP}
+            value={circleD}
+            onChange={(e) => onCircleD(+e.target.value)}
+            className="camera-range min-w-0 flex-1"
+            aria-label="Finger width"
+          />
+          <button
+            type="button"
+            aria-label="Make finger circle wider"
+            onClick={() => nudge(FINGER_CIRCLE_NUDGE)}
+            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-white/30 bg-white/10 text-2xl leading-none text-white transition-colors active:bg-white/20"
+          >
+            +
+          </button>
+        </div>
+        <p className="mono mt-2.5 text-center text-[10px] text-white/40">
+          Slide smoothly · tap − / + for fine steps
+        </p>
+      </div>
+
+      <details className="group rounded-xl border border-white/10 bg-black/30 px-3 py-2">
+        <summary className="mono-label cursor-pointer list-none text-center text-white/40 [&::-webkit-details-marker]:hidden">
+          Card width
+        </summary>
+        <input
+          type="range"
+          min={18}
+          max={70}
+          step={0.1}
+          value={cardW}
+          onChange={(e) => onCardW(+e.target.value)}
+          className="camera-range mt-3 w-full"
+          aria-label="Card width"
+        />
+      </details>
+    </div>
+  );
+}
+
 function CircleOverlay({
   xPct,
   yPct,
   dPct,
   onMove,
-  onResize,
+  interactive = true,
 }: {
   xPct: number;
   yPct: number;
   dPct: number;
   onMove: (x: number, y: number) => void;
-  onResize: (d: number) => void;
+  interactive?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const drag = useDragPct(onMove, (d) => onResize(d));
+  const drag = useDragPct(onMove);
 
   return (
     <div
@@ -1642,22 +1887,26 @@ function CircleOverlay({
         width: `${dPct}%`,
         aspectRatio: "1 / 1",
         transform: "translate(-50%, -50%)",
+        pointerEvents: interactive ? "auto" : "none",
       }}
       onPointerMove={(e) =>
+        interactive &&
         drag.onPointerMove(e, ref.current?.parentElement ?? null)
       }
       onPointerUp={drag.onPointerUp}
       onPointerCancel={drag.onPointerUp}
     >
       <div
-        className="absolute inset-0 cursor-grab rounded-full border-[2.5px] border-white bg-white/10 shadow-[0_0_0_9999px_rgba(0,0,0,0.25)] active:cursor-grabbing"
-        onPointerDown={(e) => drag.onPointerDownMove(e, xPct, yPct)}
-      />
-      <button
-        type="button"
-        aria-label="Resize measure circle"
-        className="absolute -bottom-2 -right-2 z-20 h-6 w-6 rounded-full border-2 border-[var(--accent-deep)] bg-white shadow"
-        onPointerDown={(e) => drag.onPointerDownResize(e, dPct, xPct, yPct)}
+        className={`absolute inset-0 rounded-full bg-transparent ${
+          interactive ? "cursor-grab active:cursor-grabbing" : ""
+        }`}
+        style={{
+          boxShadow:
+            "0 0 0 0.5px rgba(255,255,255,0.92), 0 0 0 9999px rgba(0,0,0,0.25)",
+        }}
+        onPointerDown={(e) =>
+          interactive && drag.onPointerDownMove(e, xPct, yPct)
+        }
       />
     </div>
   );
