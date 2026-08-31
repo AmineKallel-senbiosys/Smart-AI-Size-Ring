@@ -71,6 +71,8 @@ export function CameraScan() {
   const [card, setCard] = useState({ x: 68, y: 58, w: 42 });
   const [circle, setCircle] = useState({ x: 32, y: 58, d: 14 });
   const [photoZoom, setPhotoZoom] = useState(1);
+  /** Stage-% pan of the photo under the fixed-center circle (align step). */
+  const [photoPan, setPhotoPan] = useState({ x: 0, y: 0 });
   const [photoAspect, setPhotoAspect] = useState(3 / 4);
   const [portalMounted, setPortalMounted] = useState(false);
 
@@ -83,7 +85,14 @@ export function CameraScan() {
 
   const stageRef = useRef<HTMLDivElement>(null);
   const photoZoomRef = useRef(1);
+  const photoPanRef = useRef({ x: 0, y: 0 });
   const pinchRef = useRef<{ startDist: number; startZoom: number } | null>(null);
+  const panDragRef = useRef<{
+    startX: number;
+    startY: number;
+    originX: number;
+    originY: number;
+  } | null>(null);
   const pinchPointers = useRef(new Map<number, { x: number; y: number }>());
   const [stageW, setStageW] = useState(320);
   const [stageH, setStageH] = useState(480);
@@ -129,12 +138,8 @@ export function CameraScan() {
   }, [photoZoom]);
 
   useEffect(() => {
-    if (step !== "align") {
-      setPhotoZoom(1);
-      pinchRef.current = null;
-      pinchPointers.current.clear();
-    }
-  }, [step]);
+    photoPanRef.current = photoPan;
+  }, [photoPan]);
 
   useEffect(() => {
     const el = stageRef.current;
@@ -182,44 +187,147 @@ export function CameraScan() {
 
   const circleOnStage = photoToStage(circle.x, circle.y, circle.d);
 
-  const nudgePhotoZoom = useCallback((delta: number) => {
-    setPhotoZoom((z) =>
-      Math.round(clamp(z + delta, MIN_PHOTO_ZOOM, MAX_PHOTO_ZOOM) * 10) / 10
-    );
+  /** Keep the photo point under the fixed reticle when zoom changes. */
+  const setZoomKeepingCenter = useCallback((nextZoom: number) => {
+    const prev = photoZoomRef.current;
+    const z = clamp(nextZoom, MIN_PHOTO_ZOOM, MAX_PHOTO_ZOOM);
+    if (prev > 0 && Math.abs(z - prev) > 1e-6) {
+      const scale = z / prev;
+      setPhotoPan((p) => {
+        const next = { x: p.x * scale, y: p.y * scale };
+        photoPanRef.current = next;
+        return next;
+      });
+    }
+    photoZoomRef.current = z;
+    setPhotoZoom(z);
   }, []);
 
-  const onPinchPointerDown = useCallback(
+  const applyPanAndSyncCircle = useCallback(
+    (nextPan: { x: number; y: number }, zoom = photoZoomRef.current) => {
+      const max = 48 * zoom;
+      const pan = {
+        x: clamp(nextPan.x, -max, max),
+        y: clamp(nextPan.y, -max, max),
+      };
+      photoPanRef.current = pan;
+      setPhotoPan(pan);
+      const stageX = clamp(50 - pan.x / zoom, 2, 98);
+      const stageY = clamp(50 - pan.y / zoom, 2, 98);
+      setCircle((c) => ({ ...c, ...stageToPhotoXY(stageX, stageY) }));
+    },
+    [stageToPhotoXY]
+  );
+
+  // Entering align: pan so the current circle sits under the fixed center.
+  // Leaving align: reset zoom/pan.
+  useEffect(() => {
+    if (step !== "align") {
+      setPhotoZoom(1);
+      setPhotoPan({ x: 0, y: 0 });
+      photoZoomRef.current = 1;
+      photoPanRef.current = { x: 0, y: 0 };
+      pinchRef.current = null;
+      panDragRef.current = null;
+      pinchPointers.current.clear();
+      return;
+    }
+    const c = photoToStage(circle.x, circle.y, circle.d);
+    const pan = { x: -(c.x - 50), y: -(c.y - 50) };
+    photoPanRef.current = pan;
+    setPhotoPan(pan);
+    // Only re-init when entering align — not on every circle move.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step]);
+
+  const nudgePhotoZoom = useCallback(
+    (delta: number) => {
+      const next =
+        Math.round(
+          clamp(photoZoomRef.current + delta, MIN_PHOTO_ZOOM, MAX_PHOTO_ZOOM) *
+            10
+        ) / 10;
+      setZoomKeepingCenter(next);
+    },
+    [setZoomKeepingCenter]
+  );
+
+  const onAlignPointerDown = useCallback(
     (e: ReactPointerEvent<HTMLDivElement>) => {
       if (step !== "align") return;
       pinchPointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pinchPointers.current.size === 1) {
+        panDragRef.current = {
+          startX: e.clientX,
+          startY: e.clientY,
+          originX: photoPanRef.current.x,
+          originY: photoPanRef.current.y,
+        };
+      } else {
+        panDragRef.current = null;
+        pinchRef.current = null;
+      }
     },
     [step]
   );
 
-  const onPinchPointerMove = useCallback(
+  const onAlignPointerMove = useCallback(
     (e: ReactPointerEvent<HTMLDivElement>) => {
       if (step !== "align") return;
       if (!pinchPointers.current.has(e.pointerId)) return;
       pinchPointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-      if (pinchPointers.current.size < 2) return;
-      const pts = [...pinchPointers.current.values()];
-      const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
-      if (dist < 8) return;
-      if (!pinchRef.current) {
-        pinchRef.current = { startDist: dist, startZoom: photoZoomRef.current };
+
+      if (pinchPointers.current.size >= 2) {
+        panDragRef.current = null;
+        const pts = [...pinchPointers.current.values()];
+        const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+        if (dist < 8) return;
+        if (!pinchRef.current) {
+          pinchRef.current = {
+            startDist: dist,
+            startZoom: photoZoomRef.current,
+          };
+          return;
+        }
+        const next =
+          pinchRef.current.startZoom * (dist / pinchRef.current.startDist);
+        setZoomKeepingCenter(next);
         return;
       }
-      const next =
-        pinchRef.current.startZoom * (dist / pinchRef.current.startDist);
-      setPhotoZoom(clamp(next, MIN_PHOTO_ZOOM, MAX_PHOTO_ZOOM));
+
+      if (!panDragRef.current || !stageRef.current) return;
+      const rect = stageRef.current.getBoundingClientRect();
+      if (rect.width < 1 || rect.height < 1) return;
+      const dx =
+        ((e.clientX - panDragRef.current.startX) / rect.width) * 100;
+      const dy =
+        ((e.clientY - panDragRef.current.startY) / rect.height) * 100;
+      applyPanAndSyncCircle({
+        x: panDragRef.current.originX + dx,
+        y: panDragRef.current.originY + dy,
+      });
     },
-    [step]
+    [step, setZoomKeepingCenter, applyPanAndSyncCircle]
   );
 
-  const onPinchPointerUp = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
-    pinchPointers.current.delete(e.pointerId);
-    if (pinchPointers.current.size < 2) pinchRef.current = null;
-  }, []);
+  const onAlignPointerUp = useCallback(
+    (e: ReactPointerEvent<HTMLDivElement>) => {
+      pinchPointers.current.delete(e.pointerId);
+      if (pinchPointers.current.size < 2) pinchRef.current = null;
+      if (pinchPointers.current.size === 0) {
+        panDragRef.current = null;
+      } else if (pinchPointers.current.size === 1) {
+        const remaining = [...pinchPointers.current.values()][0];
+        panDragRef.current = {
+          startX: remaining.x,
+          startY: remaining.y,
+          originX: photoPanRef.current.x,
+          originY: photoPanRef.current.y,
+        };
+      }
+    },
+    []
+  );
 
   const onPhotoWheel = useCallback(
     (e: ReactWheelEvent<HTMLDivElement>) => {
@@ -232,6 +340,7 @@ export function CameraScan() {
 
   const applyAdjust = useCallback(() => {
     setPhotoZoom(1);
+    setPhotoPan({ x: 0, y: 0 });
     setStep("preview");
   }, []);
 
@@ -927,17 +1036,18 @@ export function CameraScan() {
                   >
                     <div
                       className="absolute inset-0"
-                      style={{
-                        transform:
-                          step === "align" && photoZoom > 1
-                            ? `scale(${photoZoom})`
-                            : undefined,
-                        transformOrigin: `${circleOnStage.x}% ${circleOnStage.y}%`,
-                      }}
-                      onPointerDown={onPinchPointerDown}
-                      onPointerMove={onPinchPointerMove}
-                      onPointerUp={onPinchPointerUp}
-                      onPointerCancel={onPinchPointerUp}
+                      style={
+                        step === "align"
+                          ? {
+                              transform: `translate(${photoPan.x}%, ${photoPan.y}%) scale(${photoZoom})`,
+                              transformOrigin: "50% 50%",
+                            }
+                          : undefined
+                      }
+                      onPointerDown={onAlignPointerDown}
+                      onPointerMove={onAlignPointerMove}
+                      onPointerUp={onAlignPointerUp}
+                      onPointerCancel={onAlignPointerUp}
                     >
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
@@ -974,16 +1084,25 @@ export function CameraScan() {
                           <div className="absolute inset-0 rounded-[5px] border-[2.5px] border-[var(--accent-glow)]/60 bg-[var(--accent)]/10" />
                         </div>
                       )}
-                      <CircleOverlay
-                        xPct={circleOnStage.x}
-                        yPct={circleOnStage.y}
-                        dPct={circleOnStage.size}
-                        onMove={(x, y) =>
-                          setCircle((c) => ({ ...c, ...stageToPhotoXY(x, y) }))
-                        }
-                        interactive={step === "align"}
-                      />
+                      {step === "preview" && (
+                        <CircleOverlay
+                          xPct={circleOnStage.x}
+                          yPct={circleOnStage.y}
+                          dPct={circleOnStage.size}
+                          interactive={false}
+                        />
+                      )}
                     </div>
+
+                    {/* Align: circle stays locked to screen center; photo pans under it. */}
+                    {step === "align" && (
+                      <CircleOverlay
+                        xPct={50}
+                        yPct={50}
+                        dPct={circleOnStage.size * photoZoom}
+                        interactive={false}
+                      />
+                    )}
                   </div>
 
                   {step === "align" && (
@@ -1791,7 +1910,7 @@ function FingerAdjustPanel({
   return (
     <div className="space-y-3">
       <p className="mono text-center text-[10px] tracking-wider text-white/50">
-        DRAG THE CIRCLE · PINCH OR USE + / − TO ZOOM
+        SLIDE TO MOVE · PINCH OR USE + / − TO ZOOM
       </p>
 
       <div className="rounded-2xl border border-white/15 bg-black/55 px-4 py-5 text-center backdrop-blur-md">
@@ -1871,11 +1990,11 @@ function CircleOverlay({
   xPct: number;
   yPct: number;
   dPct: number;
-  onMove: (x: number, y: number) => void;
+  onMove?: (x: number, y: number) => void;
   interactive?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const drag = useDragPct(onMove);
+  const drag = useDragPct(onMove ?? (() => {}));
 
   return (
     <div
