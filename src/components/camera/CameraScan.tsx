@@ -21,10 +21,14 @@ import {
 } from "@/lib/calibration";
 import {
   diameterToCircumference,
-  findNearestByDiameter,
   formatMm,
-  formatUsSize,
 } from "@/lib/convert";
+import {
+  classifyCircumference,
+  fitFromColor,
+  type CircClassification,
+  type FitColor,
+} from "@/lib/explore-flow";
 import {
   detectCardRectAsync,
   detectFingerFromLandmarks,
@@ -43,7 +47,7 @@ import { installMediaPipeConsoleFilter } from "@/lib/suppress-mediapipe-console"
 
 installMediaPipeConsoleFilter();
 
-type Step = "intro" | "capture" | "preview" | "align" | "result";
+type Step = "intro" | "prep" | "capture" | "preview" | "align" | "result";
 type MeasureMode = "ring" | "finger";
 
 const MIN_DIAM_MM = 12;
@@ -60,6 +64,7 @@ const FINGER_CIRCLE_NUDGE = 0.05;
 export function CameraScan() {
   const { videoRef, status, error, start, stop, capture } = useCamera();
   const [step, setStep] = useState<Step>("intro");
+  const [prepSlide, setPrepSlide] = useState(0);
   const [photo, setPhoto] = useState<string | null>(null);
   const [mode, setMode] = useState<MeasureMode>("finger");
   const [aiReady, setAiReady] = useState(false);
@@ -154,35 +159,50 @@ export function CameraScan() {
     return () => ro.disconnect();
   }, [step, photo]);
 
-  // The photo is displayed object-cover (same framing as the live camera).
+  // Photo displayed object-contain so the full capture stays visible (letterboxed).
   // Card/circle state stays in PHOTO space; these convert to/from the
-  // cover-cropped stage space for rendering and drag interactions.
-  const cover = useMemo(() => {
-    const dw = Math.max(stageW, stageH * photoAspect);
-    const dh = dw / photoAspect;
-    return { dw, dh, ox: (stageW - dw) / 2, oy: (stageH - dh) / 2 };
+  // framed stage space for rendering and drag interactions.
+  const photoFrame = useMemo(() => {
+    if (stageW <= 0 || stageH <= 0 || photoAspect <= 0) {
+      return { dw: stageW || 320, dh: stageH || 480, ox: 0, oy: 0 };
+    }
+    let dw: number;
+    let dh: number;
+    if (stageW / stageH > photoAspect) {
+      dh = stageH;
+      dw = stageH * photoAspect;
+    } else {
+      dw = stageW;
+      dh = stageW / photoAspect;
+    }
+    return {
+      dw,
+      dh,
+      ox: (stageW - dw) / 2,
+      oy: (stageH - dh) / 2,
+    };
   }, [stageW, stageH, photoAspect]);
 
   const photoToStage = useCallback(
     (xPct: number, yPct: number, sizePct: number) => ({
-      x: ((cover.ox + (xPct / 100) * cover.dw) / stageW) * 100,
-      y: ((cover.oy + (yPct / 100) * cover.dh) / stageH) * 100,
-      size: (sizePct * cover.dw) / stageW,
+      x: ((photoFrame.ox + (xPct / 100) * photoFrame.dw) / stageW) * 100,
+      y: ((photoFrame.oy + (yPct / 100) * photoFrame.dh) / stageH) * 100,
+      size: (sizePct * photoFrame.dw) / stageW,
     }),
-    [cover, stageW, stageH]
+    [photoFrame, stageW, stageH]
   );
 
   const stageToPhotoXY = useCallback(
     (xStagePct: number, yStagePct: number) => ({
-      x: (((xStagePct / 100) * stageW - cover.ox) / cover.dw) * 100,
-      y: (((yStagePct / 100) * stageH - cover.oy) / cover.dh) * 100,
+      x: (((xStagePct / 100) * stageW - photoFrame.ox) / photoFrame.dw) * 100,
+      y: (((yStagePct / 100) * stageH - photoFrame.oy) / photoFrame.dh) * 100,
     }),
-    [cover, stageW, stageH]
+    [photoFrame, stageW, stageH]
   );
 
   const stageToPhotoSize = useCallback(
-    (sizeStagePct: number) => (sizeStagePct * stageW) / cover.dw,
-    [cover, stageW]
+    (sizeStagePct: number) => (sizeStagePct * stageW) / photoFrame.dw,
+    [photoFrame, stageW]
   );
 
   const circleOnStage = photoToStage(circle.x, circle.y, circle.d);
@@ -205,10 +225,16 @@ export function CameraScan() {
 
   const applyPanAndSyncCircle = useCallback(
     (nextPan: { x: number; y: number }, zoom = photoZoomRef.current) => {
-      const max = 48 * zoom;
+      const baseMaxX =
+        stageW > 0 ? (photoFrame.ox / stageW) * 100 : 0;
+      const baseMaxY =
+        stageH > 0 ? (photoFrame.oy / stageH) * 100 : 0;
+      const extra = Math.max(0, zoom - 1) * 42;
+      const maxX = baseMaxX + extra;
+      const maxY = baseMaxY + extra;
       const pan = {
-        x: clamp(nextPan.x, -max, max),
-        y: clamp(nextPan.y, -max, max),
+        x: clamp(nextPan.x, -maxX, maxX),
+        y: clamp(nextPan.y, -maxY, maxY),
       };
       photoPanRef.current = pan;
       setPhotoPan(pan);
@@ -216,10 +242,10 @@ export function CameraScan() {
       const stageY = clamp(50 - pan.y / zoom, 2, 98);
       setCircle((c) => ({ ...c, ...stageToPhotoXY(stageX, stageY) }));
     },
-    [stageToPhotoXY]
+    [stageToPhotoXY, photoFrame, stageW, stageH]
   );
 
-  // Entering align: pan so the current circle sits under the fixed center.
+  // Entering align: keep full photo visible; user slides finger under fixed circle.
   // Leaving align: reset zoom/pan.
   useEffect(() => {
     if (step !== "align") {
@@ -232,11 +258,10 @@ export function CameraScan() {
       pinchPointers.current.clear();
       return;
     }
-    const c = photoToStage(circle.x, circle.y, circle.d);
-    const pan = { x: -(c.x - 50), y: -(c.y - 50) };
-    photoPanRef.current = pan;
-    setPhotoPan(pan);
-    // Only re-init when entering align — not on every circle move.
+    photoPanRef.current = { x: 0, y: 0 };
+    setPhotoPan({ x: 0, y: 0 });
+    photoZoomRef.current = 1;
+    setPhotoZoom(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
 
@@ -650,8 +675,8 @@ export function CameraScan() {
     owlReady,
   ]);
 
-  const cardPx = (card.w / 100) * stageW;
-  const diameterPx = (circle.d / 100) * stageW;
+  const cardPx = (card.w / 100) * photoFrame.dw;
+  const diameterPx = (circle.d / 100) * photoFrame.dw;
 
   const mmPerPx = useMemo(
     () => mmPerPxFromOutline(cardPx, CARD_WIDTH_MM),
@@ -669,9 +694,9 @@ export function CameraScan() {
     [diameterMm]
   );
 
-  const converted = useMemo(
-    () => findNearestByDiameter(diameterMm),
-    [diameterMm]
+  const sizeClassification = useMemo(
+    () => classifyCircumference(circumferenceMm),
+    [circumferenceMm]
   );
 
   const openCamera = useCallback(() => {
@@ -707,6 +732,19 @@ export function CameraScan() {
     // Must call getUserMedia in the same user-gesture turn — setTimeout breaks iOS Safari.
     void start();
   }, [step, start]);
+
+  const beginCameraPrep = useCallback(() => {
+    setPrepSlide(0);
+    setStep("prep");
+  }, []);
+
+  const continuePrep = useCallback(() => {
+    if (prepSlide < 3) {
+      setPrepSlide((s) => s + 1);
+      return;
+    }
+    openCamera();
+  }, [prepSlide, openCamera]);
 
   const takePhoto = async () => {
     const video = videoRef.current;
@@ -834,6 +872,7 @@ export function CameraScan() {
     setLiveFinger(null);
     setCard({ x: 68, y: 58, w: 42 });
     setCircle({ x: 32, y: 58, d: 14 });
+    setPrepSlide(0);
     setStep("intro");
   };
 
@@ -1025,15 +1064,23 @@ export function CameraScan() {
 
             {(step === "preview" || step === "align") && photo && (
               <>
-                <div className="relative min-h-0 flex-1">
-                  {/* Photo fills the screen exactly like the live camera view.
-                      Overlay state lives in photo space and is converted through
-                      the object-cover transform, so nothing jumps or distorts. */}
+                <div
+                  className={`relative min-h-0 flex-1 ${
+                    step === "align" ? "bg-black" : ""
+                  }`}
+                >
                   <div
                     ref={stageRef}
-                    className="absolute inset-0 touch-none select-none overflow-hidden"
+                    className="absolute inset-0 touch-none select-none overflow-hidden bg-black"
                     onWheel={onPhotoWheel}
                   >
+                    {step === "align" && (
+                      <div
+                        className="pointer-events-none absolute inset-3 z-[4] rounded-xl border-2 border-[var(--gold)]/50 shadow-[inset_0_0_24px_rgba(184,147,74,0.08)]"
+                        aria-hidden
+                      />
+                    )}
+
                     <div
                       className="absolute inset-0"
                       style={
@@ -1053,7 +1100,7 @@ export function CameraScan() {
                       <img
                         src={photo}
                         alt="Captured sizing photo"
-                        className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+                        className="pointer-events-none absolute inset-0 h-full w-full object-contain"
                         draggable={false}
                       />
                       {step === "align" && (
@@ -1150,78 +1197,31 @@ export function CameraScan() {
                   </div>
                 </div>
 
-                <div className="camera-safe-bottom relative z-20 shrink-0 bg-gradient-to-t from-black via-black/90 to-transparent px-4 pb-4 pt-5">
+                <div
+                  className={`camera-safe-bottom relative z-20 shrink-0 bg-gradient-to-t from-black via-black/95 to-transparent ${
+                    step === "align" ? "px-3 pb-3 pt-2" : "px-4 pb-4 pt-5"
+                  }`}
+                >
                   {step === "preview" ? (
                     <>
-                      <div className="rounded-2xl border border-white/15 bg-black/55 px-5 py-4 backdrop-blur-md">
-                        <p className="mono-label text-[var(--gold-light)]">
-                          Circumference
-                        </p>
-                        <p className="mt-1 font-[family-name:var(--font-display)] text-5xl font-bold leading-none text-[var(--gold-light)]">
-                          {formatMm(circumferenceMm)}
-                          <span className="ml-2 text-2xl font-normal text-white/70">
-                            mm
-                          </span>
-                        </p>
-                        <p className="mono mt-3 text-center text-[11px] text-white/50">
-                          Ø diameter {formatMm(diameterMm, 2)} mm
-                        </p>
-                        <div className="mt-3 grid grid-cols-4 gap-2">
-                          {[
-                            { l: "US", v: formatUsSize(converted.row.us) },
-                            { l: "UK", v: converted.row.uk },
-                            {
-                              l: "EU",
-                              v:
-                                converted.row.eu != null
-                                  ? String(converted.row.eu)
-                                  : "—",
-                            },
-                            {
-                              l: "JP",
-                              v:
-                                converted.row.jp != null
-                                  ? String(converted.row.jp)
-                                  : "—",
-                            },
-                          ].map((c) => (
-                            <div
-                              key={c.l}
-                              className="rounded-lg bg-white/10 px-2 py-2 text-center"
-                            >
-                              <p className="mono-label text-[9px] text-white/45">
-                                {c.l}
-                              </p>
-                              <p className="mt-0.5 text-sm font-semibold text-white">
-                                {c.v}
-                              </p>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                      <div className="mt-4 flex gap-3">
-                        <button
-                          type="button"
-                          onClick={() => setStep("align")}
-                          className="flex-1 rounded-xl border border-white/25 bg-white/10 py-3 text-sm font-medium text-white backdrop-blur-sm"
-                        >
-                          Adjust finger
-                        </button>
-                        <button
-                          type="button"
-                          onClick={finish}
-                          className="gold-fill flex-1 rounded-xl py-3 text-sm font-medium text-[var(--ink)] shadow-[inset_0_1px_0_rgba(255,255,255,0.4)]"
-                        >
-                          Save size
-                        </button>
-                      </div>
+                      <CameraMeasureCard
+                        circumferenceMm={circumferenceMm}
+                        classification={sizeClassification}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setStep("align")}
+                        className="mt-4 w-full rounded-xl border border-white/25 bg-white/10 py-3 text-sm font-medium text-white backdrop-blur-sm"
+                      >
+                        Adjust finger
+                      </button>
                     </>
                   ) : (
                     <>
                       <FingerAdjustPanel
                         circleD={circle.d}
                         circumferenceMm={circumferenceMm}
-                        diameterMm={diameterMm}
+                        classification={sizeClassification}
                         cardW={card.w}
                         onCircleD={(d) =>
                           setCircle((c) => ({
@@ -1235,22 +1235,13 @@ export function CameraScan() {
                         }
                         onCardW={(w) => setCard((c) => ({ ...c, w }))}
                       />
-                      <div className="mt-4 flex gap-3">
-                        <button
-                          type="button"
-                          onClick={applyAdjust}
-                          className="gold-fill flex-1 rounded-xl py-3 text-sm font-medium text-[var(--ink)] shadow-[inset_0_1px_0_rgba(255,255,255,0.4)]"
-                        >
-                          Apply
-                        </button>
-                        <button
-                          type="button"
-                          onClick={finish}
-                          className="flex-1 rounded-xl border border-white/25 bg-white/10 py-3 text-sm font-medium text-white"
-                        >
-                          Save size
-                        </button>
-                      </div>
+                      <button
+                        type="button"
+                        onClick={applyAdjust}
+                        className="gold-fill mt-2 w-full rounded-xl py-2.5 text-sm font-medium text-[var(--ink)] shadow-[inset_0_1px_0_rgba(255,255,255,0.4)]"
+                      >
+                        Apply
+                      </button>
                     </>
                   )}
                 </div>
@@ -1265,12 +1256,15 @@ export function CameraScan() {
     <>
       {fullscreenPortal}
       <div
-        className={`mx-auto flex min-h-[calc(100dvh-3.5rem)] w-full max-w-lg flex-col px-4 py-4 sm:py-6 ${
-          isFullscreen ? "invisible h-0 overflow-hidden p-0" : ""
-        }`}
+        className={`mx-auto flex w-full max-w-lg flex-col px-4 ${
+          step === "prep"
+            ? "h-[calc(100dvh-3.5rem)] overflow-hidden py-3"
+            : "min-h-[calc(100dvh-3.5rem)] py-4 sm:py-6"
+        } ${isFullscreen ? "invisible h-0 overflow-hidden p-0" : ""}`}
       >
-      <StepDots step={step} />
+      {step !== "prep" && <StepDots step={step} />}
 
+      <div className={step === "prep" ? "flex min-h-0 flex-1 flex-col" : undefined}>
       <AnimatePresence mode="wait">
         {step === "intro" && (
           <Panel key="intro">
@@ -1310,7 +1304,7 @@ export function CameraScan() {
 
             <button
               type="button"
-              onClick={openCamera}
+              onClick={beginCameraPrep}
               className="gold-fill mt-8 w-full rounded-xl px-5 py-3.5 text-[15px] font-medium text-[var(--ink)] shadow-[inset_0_1px_0_rgba(255,255,255,0.4),0_12px_28px_-14px_rgba(184,147,74,0.55)]"
             >
               Open camera
@@ -1327,6 +1321,18 @@ export function CameraScan() {
           </Panel>
         )}
 
+        {step === "prep" && (
+          <CameraPrepSlides
+            key="prep"
+            slide={prepSlide}
+            onContinue={continuePrep}
+            onBack={() => {
+              if (prepSlide > 0) setPrepSlide((s) => s - 1);
+              else setStep("intro");
+            }}
+          />
+        )}
+
         {step === "result" && (
           <Panel key="result">
             <Badge>Measurement</Badge>
@@ -1339,33 +1345,23 @@ export function CameraScan() {
                 {formatMm(circumferenceMm)}
                 <span className="ml-2 text-2xl text-[var(--muted)]">mm</span>
               </p>
-              <p className="mono mt-3 text-[11px] text-[var(--muted)]">
-                Ø diameter {formatMm(diameterMm, 2)} mm
-              </p>
-            </div>
-            <div className="mt-4 grid grid-cols-4 gap-2">
-              {[
-                { l: "US", v: formatUsSize(converted.row.us) },
-                { l: "UK", v: converted.row.uk },
-                {
-                  l: "EU",
-                  v: converted.row.eu != null ? String(converted.row.eu) : "—",
-                },
-                {
-                  l: "JP",
-                  v: converted.row.jp != null ? String(converted.row.jp) : "—",
-                },
-              ].map((c) => (
-                <div
-                  key={c.l}
-                  className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-2 py-3 text-center"
-                >
-                  <p className="mono-label text-[var(--muted)]">{c.l}</p>
-                  <p className="mt-1 font-[family-name:var(--font-display)] text-lg font-bold">
-                    {c.v}
-                  </p>
-                </div>
-              ))}
+              <div className="mt-5 inline-flex flex-col items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-6 py-4">
+                <p className="font-[family-name:var(--font-display)] text-5xl font-bold leading-none text-[var(--gold-light)]">
+                  US {sizeClassification.us}
+                </p>
+                <p className="font-[family-name:var(--font-display)] text-xl text-[var(--ink)]">
+                  {FIT_ZONE_LABEL[fitFromColor(sizeClassification.color)]}
+                </p>
+                <p className="flex items-center gap-1.5">
+                  <span
+                    className={`inline-block h-2.5 w-2.5 rounded-full ${FIT_ZONE_STYLE[sizeClassification.color].chip}`}
+                    aria-hidden
+                  />
+                  <span className="mono text-[11px] text-[var(--muted)]">
+                    {FIT_ZONE_STYLE[sizeClassification.color].label} zone
+                  </span>
+                </p>
+              </div>
             </div>
             <div className="mt-6 flex gap-3">
               <button
@@ -1386,6 +1382,7 @@ export function CameraScan() {
           </Panel>
         )}
       </AnimatePresence>
+      </div>
       </div>
     </>
   );
@@ -1438,49 +1435,86 @@ function CardGuideGhost() {
 function CaptureGuide({ staticPreview = false }: { staticPreview?: boolean }) {
   return (
     <div
-      className={`relative flex h-full w-full items-end justify-center gap-3 pb-2 ${
-        staticPreview ? "min-h-[160px]" : ""
+      className={`relative flex h-full w-full items-end justify-center gap-4 pb-2 ${
+        staticPreview ? "min-h-[168px]" : ""
       }`}
     >
-      <div className="relative mb-1 flex w-[36%] flex-col items-center">
-        <svg
-          viewBox="0 0 80 160"
-          className={`w-full ${staticPreview ? "opacity-90" : "guide-pulse opacity-95"}`}
-          aria-hidden
-        >
-          <path
-            d="M28 158 V72 C28 52 22 40 22 28 C22 16 30 8 40 8 C50 8 58 16 58 28 C58 40 52 52 52 72 V158"
-            fill="none"
-            stroke="rgba(255,255,255,0.85)"
-            strokeWidth="2.5"
-            strokeDasharray="5 4"
-            strokeLinecap="round"
-          />
-          <ellipse
-            cx="40"
-            cy="112"
-            rx="13"
-            ry="6"
-            fill="none"
-            stroke="var(--accent-glow)"
-            strokeWidth="2"
-          />
-        </svg>
+      <div className="relative mb-1 flex w-[38%] flex-col items-center">
         <p className="mono absolute -top-5 left-1/2 -translate-x-1/2 whitespace-nowrap text-[10px] tracking-wider text-white/85">
           FINGER
         </p>
+        <div className="relative w-full">
+          <svg
+            viewBox="0 0 80 150"
+            className={`w-full ${staticPreview ? "opacity-95" : "guide-pulse opacity-95"}`}
+            aria-hidden
+          >
+            <defs>
+              <linearGradient id="introFingerFill" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0%" stopColor="rgba(255,255,255,0.12)" />
+                <stop offset="45%" stopColor="rgba(255,255,255,0.3)" />
+                <stop offset="100%" stopColor="rgba(255,255,255,0.14)" />
+              </linearGradient>
+            </defs>
+            <path
+              d="M26 148 V78
+                 C26 68 24 62 24 54
+                 C24 42 28 34 28 26
+                 C28 14 34 6 40 6
+                 C46 6 52 14 52 26
+                 C52 34 56 42 56 54
+                 C56 62 54 68 54 78
+                 V148 Z"
+              fill="url(#introFingerFill)"
+              stroke="rgba(255,255,255,0.85)"
+              strokeWidth="1.8"
+              strokeLinejoin="round"
+            />
+            <path
+              d="M29 52 Q40 48 51 52"
+              fill="none"
+              stroke="rgba(255,255,255,0.4)"
+              strokeWidth="1.2"
+              strokeLinecap="round"
+            />
+            <ellipse
+              cx="40"
+              cy="54"
+              rx="11"
+              ry="5"
+              fill="none"
+              stroke="rgba(255,255,255,0.22)"
+              strokeWidth="1"
+            />
+            <path
+              d="M33 18 C35 10 45 10 47 18 C45 22 35 22 33 18 Z"
+              fill="rgba(255,255,255,0.24)"
+              stroke="rgba(255,255,255,0.5)"
+              strokeWidth="0.8"
+            />
+            {/* Measure circle at ring seat — outer edge meets finger outline */}
+            <circle
+              cx="40"
+              cy="88"
+              r="13.3"
+              fill="none"
+              stroke="var(--accent-glow)"
+              strokeWidth="1.4"
+            />
+          </svg>
+        </div>
       </div>
 
       <div className="relative w-[46%]">
+        <p className="mono absolute -top-5 left-0 text-[10px] tracking-wider text-[var(--accent-glow)]">
+          CARD
+        </p>
         <div
           className={`w-full rounded-[6px] border-2 border-dashed border-[var(--accent-glow)] bg-[var(--accent)]/15 ${
             staticPreview ? "" : "guide-pulse"
           }`}
           style={{ aspectRatio: `${CARD_WIDTH_MM} / ${CARD_HEIGHT_MM}` }}
         />
-        <p className="mono absolute -top-5 left-0 text-[10px] tracking-wider text-[var(--accent-glow)]">
-          CARD
-        </p>
       </div>
     </div>
   );
@@ -1882,17 +1916,114 @@ function CardOverlay({
   );
 }
 
+const FIT_ZONE_STYLE: Record<
+  FitColor,
+  { chip: string; label: string; pill: string }
+> = {
+  green: {
+    chip: "bg-emerald-500",
+    label: "Green",
+    pill: "border-emerald-500/40 bg-emerald-500/15",
+  },
+  red: {
+    chip: "bg-red-500",
+    label: "Red",
+    pill: "border-red-500/40 bg-red-500/15",
+  },
+  black: {
+    chip: "bg-neutral-200 ring-1 ring-white/30",
+    label: "Black",
+    pill: "border-white/25 bg-white/10",
+  },
+};
+
+const FIT_ZONE_LABEL: Record<"ok" | "loose" | "tight", string> = {
+  ok: "Ok",
+  loose: "Loose",
+  tight: "Tight",
+};
+
+function CameraMeasureCard({
+  circumferenceMm,
+  classification,
+  compact = false,
+}: {
+  circumferenceMm: number;
+  classification: CircClassification;
+  compact?: boolean;
+}) {
+  const zone = FIT_ZONE_STYLE[classification.color];
+  const fit = fitFromColor(classification.color);
+
+  if (compact) {
+    return (
+      <div className="flex items-center justify-between gap-3 rounded-xl border border-white/15 bg-black/50 px-3 py-2 backdrop-blur-md">
+        <div className="min-w-0 text-left">
+          <p className="mono text-[9px] text-white/45">Circumference</p>
+          <p className="font-[family-name:var(--font-display)] text-xl font-bold leading-none text-[var(--gold-light)]">
+            {formatMm(circumferenceMm)}
+            <span className="ml-1 text-xs font-normal text-white/60">mm</span>
+          </p>
+        </div>
+        <div
+          className={`flex shrink-0 flex-col items-end rounded-lg border px-2.5 py-1.5 ${zone.pill}`}
+        >
+          <p className="font-[family-name:var(--font-display)] text-lg font-bold leading-none text-[var(--gold-light)]">
+            US {classification.us}
+          </p>
+          <p className="mt-0.5 flex items-center gap-1">
+            <span
+              className={`inline-block h-1.5 w-1.5 rounded-full ${zone.chip}`}
+              aria-hidden
+            />
+            <span className="mono text-[8px] text-white/55">
+              {FIT_ZONE_LABEL[fit]}
+            </span>
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-2xl border border-white/15 bg-black/55 px-5 py-5 text-center backdrop-blur-md">
+      <p className="mono-label text-[var(--gold-light)]">Circumference</p>
+      <p className="mt-1 font-[family-name:var(--font-display)] text-5xl font-bold leading-none text-[var(--gold-light)]">
+        {formatMm(circumferenceMm)}
+        <span className="ml-2 text-2xl font-normal text-white/70">mm</span>
+      </p>
+      <div
+        className={`mt-4 inline-flex flex-col items-center gap-1.5 rounded-2xl border px-5 py-3 ${zone.pill}`}
+      >
+        <p className="font-[family-name:var(--font-display)] text-4xl font-bold leading-none text-[var(--gold-light)]">
+          US {classification.us}
+        </p>
+        <p className="font-[family-name:var(--font-display)] text-lg text-white">
+          {FIT_ZONE_LABEL[fit]}
+        </p>
+        <p className="flex items-center gap-1.5">
+          <span
+            className={`inline-block h-2.5 w-2.5 rounded-full ${zone.chip}`}
+            aria-hidden
+          />
+          <span className="mono text-[10px] text-white/55">{zone.label} zone</span>
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function FingerAdjustPanel({
   circleD,
   circumferenceMm,
-  diameterMm,
+  classification,
   cardW,
   onCircleD,
   onCardW,
 }: {
   circleD: number;
   circumferenceMm: number;
-  diameterMm: number;
+  classification: CircClassification;
   cardW: number;
   onCircleD: (d: number) => void;
   onCardW: (w: number) => void;
@@ -1908,32 +2039,27 @@ function FingerAdjustPanel({
   };
 
   return (
-    <div className="space-y-3">
-      <p className="mono text-center text-[10px] tracking-wider text-white/50">
-        SLIDE TO MOVE · PINCH OR USE + / − TO ZOOM
+    <div className="space-y-2">
+      <p className="mono text-center text-[9px] tracking-wider text-[var(--gold-light)]/80">
+        SLIDE TO MOVE · PINCH OR + / − TO ZOOM
       </p>
 
-      <div className="rounded-2xl border border-white/15 bg-black/55 px-4 py-5 text-center backdrop-blur-md">
-        <p className="mono-label text-[var(--gold-light)]">Your measure</p>
-        <p className="mt-1 font-[family-name:var(--font-display)] text-5xl font-bold leading-none text-[var(--gold-light)]">
-          {formatMm(circumferenceMm)}
-          <span className="ml-2 text-xl font-normal text-white/70">mm</span>
-        </p>
-        <p className="mono mt-2 text-[11px] text-white/45">
-          Circumference · Ø {formatMm(diameterMm, 2)} mm
-        </p>
-      </div>
+      <CameraMeasureCard
+        circumferenceMm={circumferenceMm}
+        classification={classification}
+        compact
+      />
 
-      <div className="rounded-2xl border border-white/15 bg-black/45 px-3 py-4 backdrop-blur-md">
-        <p className="mono-label mb-3 text-center text-white/55">
+      <div className="rounded-xl border border-white/15 bg-black/45 px-3 py-3 backdrop-blur-md">
+        <p className="mono-label mb-2 text-center text-[10px] text-white/55">
           Finger width
         </p>
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2">
           <button
             type="button"
             aria-label="Make finger circle narrower"
             onClick={() => nudge(-FINGER_CIRCLE_NUDGE)}
-            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-white/30 bg-white/10 text-2xl leading-none text-white transition-colors active:bg-white/20"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/30 bg-white/10 text-xl leading-none text-white transition-colors active:bg-white/20"
           >
             −
           </button>
@@ -1951,17 +2077,14 @@ function FingerAdjustPanel({
             type="button"
             aria-label="Make finger circle wider"
             onClick={() => nudge(FINGER_CIRCLE_NUDGE)}
-            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-white/30 bg-white/10 text-2xl leading-none text-white transition-colors active:bg-white/20"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/30 bg-white/10 text-xl leading-none text-white transition-colors active:bg-white/20"
           >
             +
           </button>
         </div>
-        <p className="mono mt-2.5 text-center text-[10px] text-white/40">
-          Slide smoothly · tap − / + for fine steps
-        </p>
       </div>
 
-      <details className="group rounded-xl border border-white/10 bg-black/30 px-3 py-2">
+      <details className="group rounded-lg border border-white/10 bg-black/30 px-3 py-1.5">
         <summary className="mono-label cursor-pointer list-none text-center text-white/40 [&::-webkit-details-marker]:hidden">
           Card width
         </summary>
@@ -2069,6 +2192,385 @@ function clamp(n: number, min: number, max: number) {
   return Math.min(max, Math.max(min, n));
 }
 
+function CameraPrepSlides({
+  slide,
+  onContinue,
+  onBack,
+}: {
+  slide: number;
+  onContinue: () => void;
+  onBack: () => void;
+}) {
+  const slides = [
+    {
+      badge: "Step 1 of 4",
+      title: "Room light",
+      body: "Use medium brightness — not too dark, not too bright. Avoid harsh shadows and direct glare on the card.",
+      visual: <PrepLightVisual />,
+    },
+    {
+      badge: "Step 2 of 4",
+      title: "Distance",
+      body: "Hold the phone 26–30 cm above your hand and card — about one hand width. Too close or too far will skew the measure.",
+      visual: <PrepDistanceVisual />,
+    },
+    {
+      badge: "Step 3 of 4",
+      title: "Level & symmetry",
+      body: "Tilt the phone until the yellow + merges with the white + in the center. Both crosses should be perfectly aligned before you capture.",
+      visual: <PrepLevelVisual />,
+    },
+    {
+      badge: "Step 4 of 4",
+      title: "Adjust the circle",
+      body: "After the snap, tap Adjust finger. Slide until the circle sits on your ring finger, then resize so it touches both skin edges — not folds, not empty space.",
+      visual: <PrepAdjustVisual />,
+    },
+  ] as const;
+
+  const current = slides[slide] ?? slides[0];
+  const isLast = slide >= slides.length - 1;
+
+  return (
+    <Panel key={`prep-${slide}`} flush>
+      <div className="flex min-h-0 flex-1 flex-col justify-center gap-3">
+        <button
+          type="button"
+          onClick={onBack}
+          className="mono self-start text-xs text-[var(--muted)] underline-offset-4 hover:underline"
+        >
+          ← Back
+        </button>
+
+        <div className="overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--stage)]">
+          <div className="flex h-[min(34svh,220px)] items-center justify-center bg-gradient-to-b from-[var(--ink)] to-[#1a1814] px-4 py-4">
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={slide}
+                initial={{ opacity: 0, scale: 0.96 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.96 }}
+                transition={{ duration: 0.22 }}
+                className="w-full max-w-[280px]"
+              >
+                {current.visual}
+              </motion.div>
+            </AnimatePresence>
+          </div>
+
+          <div className="border-t border-[var(--border)] bg-[var(--surface)] px-4 py-3.5">
+            <p className="mono-label text-[var(--gold-deep)]">{current.badge}</p>
+            <h2 className="mt-1 font-[family-name:var(--font-display)] text-xl font-bold tracking-tight text-[var(--ink)]">
+              {current.title}
+            </h2>
+            <p className="mt-2 text-[13px] leading-snug text-[var(--muted)]">
+              {current.body}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex justify-center gap-2">
+          {slides.map((_, i) => (
+            <span
+              key={i}
+              className={`h-1.5 rounded-full transition-all ${
+                i === slide
+                  ? "w-6 bg-[var(--gold)]"
+                  : "w-1.5 bg-[var(--border)]"
+              }`}
+              aria-hidden
+            />
+          ))}
+        </div>
+
+        <button
+          type="button"
+          onClick={onContinue}
+          className="gold-fill w-full shrink-0 rounded-xl px-5 py-3 text-[15px] font-medium text-[var(--ink)] shadow-[inset_0_1px_0_rgba(255,255,255,0.4),0_12px_28px_-14px_rgba(184,147,74,0.55)]"
+        >
+          {isLast ? "Open camera" : "Continue"}
+        </button>
+      </div>
+    </Panel>
+  );
+}
+
+function PrepLightVisual() {
+  return (
+    <div className="mx-auto flex flex-col items-center gap-2.5">
+      <div className="relative flex h-16 w-16 items-center justify-center rounded-full bg-white/10">
+        <svg viewBox="0 0 64 64" className="h-10 w-10" aria-hidden>
+          <circle cx="32" cy="32" r="14" fill="#ffd60a" opacity="0.95" />
+          {[0, 45, 90, 135, 180, 225, 270, 315].map((deg) => (
+            <line
+              key={deg}
+              x1="32"
+              y1="32"
+              x2="32"
+              y2="10"
+              stroke="rgba(255,255,255,0.85)"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              transform={`rotate(${deg} 32 32)`}
+            />
+          ))}
+        </svg>
+      </div>
+      <div className="flex w-full max-w-[160px] items-end justify-center gap-1">
+        {[0.35, 0.55, 0.75, 0.55, 0.35].map((h, i) => (
+          <span
+            key={i}
+            className="w-4 rounded-sm bg-[var(--gold)]"
+            style={{ height: `${h * 32}px`, opacity: i === 2 ? 1 : 0.45 }}
+          />
+        ))}
+      </div>
+      <p className="mono text-center text-[9px] tracking-wider text-white/70">
+        MEDIUM BRIGHTNESS
+      </p>
+    </div>
+  );
+}
+
+function PrepDistanceVisual() {
+  return (
+    <div className="mx-auto flex flex-col items-center gap-2">
+      <div className="relative h-28 w-full max-w-[200px]">
+        <div className="absolute left-1/2 top-1 h-10 w-14 -translate-x-1/2 rounded-lg border-2 border-white/80 bg-white/10" />
+        <div className="absolute bottom-1 left-1/2 flex w-[88%] -translate-x-1/2 items-end justify-between">
+          <div className="h-8 w-6 rounded-t-full border-2 border-dashed border-white/70" />
+          <div
+            className="rounded-md border-2 border-dashed border-[var(--accent-glow)] bg-[var(--accent)]/20"
+            style={{
+              width: 36,
+              aspectRatio: `${CARD_WIDTH_MM} / ${CARD_HEIGHT_MM}`,
+            }}
+          />
+        </div>
+        <div className="absolute left-1/2 top-[38%] flex -translate-x-1/2 flex-col items-center">
+          <span className="h-7 w-px bg-[var(--gold)]" />
+          <span className="mono rounded-full bg-[var(--gold)] px-2 py-0.5 text-[9px] font-medium text-[var(--ink)]">
+            26–30 cm
+          </span>
+          <span className="h-4 w-px bg-[var(--gold)]" />
+        </div>
+      </div>
+      <p className="mono text-center text-[9px] tracking-wider text-white/70">
+        PHONE ABOVE HAND & CARD
+      </p>
+    </div>
+  );
+}
+
+function PrepLevelVisual() {
+  return (
+    <div className="mx-auto flex flex-col items-center gap-3">
+      <div className="relative flex h-20 w-20 items-center justify-center rounded-2xl border border-white/15 bg-black/35">
+        <PlusMark color="rgba(255,255,255,0.95)" size={18} thickness={2} />
+        <PlusMark color="#ffd60a" size={18} thickness={2} />
+      </div>
+      <div className="flex items-center gap-3">
+        <div className="flex flex-col items-center gap-1">
+          <PlusMark color="rgba(255,255,255,0.95)" size={12} thickness={1.8} />
+          <span className="mono text-[8px] text-white/55">WHITE</span>
+        </div>
+        <span className="text-base text-white/40">→</span>
+        <div className="flex flex-col items-center gap-1">
+          <PlusMark color="#ffd60a" size={12} thickness={1.8} />
+          <span className="mono text-[8px] text-[var(--gold-light)]">YELLOW</span>
+        </div>
+      </div>
+      <p className="mono text-center text-[9px] tracking-wider text-white/70">
+        ALIGN BOTH + MARKS
+      </p>
+    </div>
+  );
+}
+
+function PrepAdjustVisual() {
+  return (
+    <div className="mx-auto flex w-full max-w-[260px] flex-col items-center gap-2">
+      <div className="grid w-full grid-cols-3 gap-1.5">
+        <PrepFingerExample
+          label="Too small"
+          tone="bad"
+          circleScale={0.68}
+        />
+        <PrepFingerExample
+          label="Correct"
+          tone="good"
+          circleScale={1}
+          showArrows
+        />
+        <PrepFingerExample
+          label="Too big"
+          tone="bad"
+          circleScale={1.32}
+        />
+      </div>
+      <p className="mono text-center text-[9px] tracking-wider text-white/70">
+        MATCH LEFT & RIGHT SKIN EDGES
+      </p>
+    </div>
+  );
+}
+
+const PREP_RING_CX = 40;
+const PREP_RING_CY = 88;
+/** Half-width of finger at ring seat in viewBox units (edges at x≈26 and x≈54). */
+const PREP_RING_R = 14;
+
+function PrepFingerExample({
+  label,
+  tone,
+  circleScale,
+  showArrows = false,
+}: {
+  label: string;
+  tone: "good" | "bad";
+  circleScale: number;
+  showArrows?: boolean;
+}) {
+  const good = tone === "good";
+  const gradId = `fingerFill-${tone}-${Math.round(circleScale * 100)}`;
+  const maskId = `prepMask-${gradId}`;
+  const ringR = PREP_RING_R * circleScale;
+  const ringStroke = 1.4;
+  // Stroke is centered on path — inset radius so outer edge meets finger outline.
+  const ringPathR = Math.max(4, ringR - ringStroke / 2);
+
+  return (
+    <div className="flex flex-col items-center gap-1">
+      <div
+        className={`relative flex h-[96px] w-full items-center justify-center overflow-hidden rounded-lg border ${
+          good
+            ? "border-[var(--gold)]/70 bg-white/[0.07]"
+            : "border-white/15 bg-black/30"
+        }`}
+      >
+        <svg viewBox="0 0 80 150" className="h-[88px] w-auto" aria-hidden>
+          <defs>
+            <linearGradient id={gradId} x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stopColor="rgba(255,255,255,0.12)" />
+              <stop offset="45%" stopColor="rgba(255,255,255,0.28)" />
+              <stop offset="100%" stopColor="rgba(255,255,255,0.14)" />
+            </linearGradient>
+            <mask id={maskId}>
+              <rect width="80" height="150" fill="white" />
+              <circle
+                cx={PREP_RING_CX}
+                cy={PREP_RING_CY}
+                r={ringPathR}
+                fill="black"
+              />
+            </mask>
+          </defs>
+          <path
+            d="M26 148 V78
+               C26 68 24 62 24 54
+               C24 42 28 34 28 26
+               C28 14 34 6 40 6
+               C46 6 52 14 52 26
+               C52 34 56 42 56 54
+               C56 62 54 68 54 78
+               V148 Z"
+            fill={`url(#${gradId})`}
+            stroke="rgba(255,255,255,0.78)"
+            strokeWidth="1.8"
+            strokeLinejoin="round"
+          />
+          <path
+            d="M29 52 Q40 48 51 52"
+            fill="none"
+            stroke="rgba(255,255,255,0.35)"
+            strokeWidth="1.2"
+            strokeLinecap="round"
+          />
+          <ellipse
+            cx="40"
+            cy="54"
+            rx="11"
+            ry="5"
+            fill="none"
+            stroke="rgba(255,255,255,0.2)"
+            strokeWidth="1"
+          />
+          <path
+            d="M33 18 C35 10 45 10 47 18 C45 22 35 22 33 18 Z"
+            fill="rgba(255,255,255,0.22)"
+            stroke="rgba(255,255,255,0.45)"
+            strokeWidth="0.8"
+          />
+          <rect
+            width="80"
+            height="150"
+            fill="rgba(0,0,0,0.22)"
+            mask={`url(#${maskId})`}
+          />
+          <circle
+            cx={PREP_RING_CX}
+            cy={PREP_RING_CY}
+            r={ringPathR}
+            fill="none"
+            stroke={good ? "#ffd60a" : "rgba(255,255,255,0.9)"}
+            strokeWidth={ringStroke}
+          />
+          {showArrows && (
+            <>
+              <text
+                x={PREP_RING_CX - ringPathR - 5}
+                y={PREP_RING_CY + 1}
+                textAnchor="end"
+                dominantBaseline="middle"
+                fill="#ffd60a"
+                fontSize="9"
+                fontWeight="700"
+              >
+                ←
+              </text>
+              <text
+                x={PREP_RING_CX + ringPathR + 5}
+                y={PREP_RING_CY + 1}
+                textAnchor="start"
+                dominantBaseline="middle"
+                fill="#ffd60a"
+                fontSize="9"
+                fontWeight="700"
+              >
+                →
+              </text>
+            </>
+          )}
+        </svg>
+
+        {!good && (
+          <span
+            className="absolute right-1 top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-white/15 text-[9px] text-white/70"
+            aria-hidden
+          >
+            ×
+          </span>
+        )}
+        {good && (
+          <span
+            className="absolute right-1 top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-[var(--gold)] text-[8px] font-bold text-[var(--ink)]"
+            aria-hidden
+          >
+            ✓
+          </span>
+        )}
+      </div>
+      <span
+        className={`mono text-center text-[8px] tracking-wider ${
+          good ? "text-[var(--gold-light)]" : "text-white/45"
+        }`}
+      >
+        {label.toUpperCase()}
+      </span>
+    </div>
+  );
+}
+
 function Panel({
   children,
   flush,
@@ -2082,7 +2584,11 @@ function Panel({
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -8 }}
       transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
-      className={flush ? "flex flex-1 flex-col" : "flex flex-1 flex-col pb-4"}
+      className={
+        flush
+          ? "flex min-h-0 flex-1 flex-col"
+          : "flex flex-1 flex-col pb-4"
+      }
     >
       {children}
     </motion.div>
@@ -2097,7 +2603,9 @@ function StepDots({ step }: { step: Step }) {
   const order: Step[] = ["intro", "capture", "preview", "result"];
   const idx = Math.max(
     0,
-    order.indexOf(step === "align" ? "preview" : step)
+    order.indexOf(
+      step === "align" ? "preview" : step === "prep" ? "intro" : step
+    )
   );
   const labels = ["Start", "Camera", "Size", "Saved"];
 
