@@ -115,9 +115,9 @@ export function RingMeasure({
   onSwitchFinger,
   onResult,
   guided = false,
-  nextLabel = "Next step",
+  nextLabel = "See my size",
   onSkip,
-  skipLabel = "I don't have a ring — skip",
+  skipLabel = "No ring? Skip",
 }: Props) {
   const [styleId, setStyleId] = useState<RingStyleId>("classic");
   const style = getRingStyle(styleId);
@@ -143,6 +143,7 @@ export function RingMeasure({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLElement && e.target.closest("input, select, textarea, [contenteditable=true]")) return;
       if (e.key === "ArrowLeft") {
         e.preventDefault();
         nudge(-0.05);
@@ -162,15 +163,8 @@ export function RingMeasure({
 
   return (
     <div className="space-y-5">
-      <StepHeading title="Place your ring on the screen">
-        Drag the slider until the ring matches the inner edge of yours.{" "}
-        <button
-          type="button"
-          onClick={onRecalibrate}
-          className="text-[var(--gold-deep)] underline underline-offset-2 hover:text-[var(--ink)]"
-        >
-          Re-calibrate screen
-        </button>
+      <StepHeading title="Match your ring">
+        Place your ring on screen. Adjust to match its inner edge.
       </StepHeading>
 
       {!guided && (
@@ -180,11 +174,9 @@ export function RingMeasure({
         />
       )}
 
-      <div>
-        <p className="mono-label mb-2 text-center text-[var(--muted)]">
-          Ring style
-        </p>
-        <div className="flex flex-wrap items-start justify-center gap-2">
+      <details>
+        <summary className="cursor-pointer text-sm text-[var(--gold-deep)]">Ring appearance</summary>
+        <div className="mt-3 flex flex-wrap items-start justify-center gap-2">
           {RING_STYLES.map((s) => (
             <StyleThumb
               key={s.id}
@@ -196,12 +188,12 @@ export function RingMeasure({
             />
           ))}
         </div>
-      </div>
+      </details>
 
       <Stage
-        caption="Place ring · match the inner edge"
+        caption="Match the inner edge"
         crosshair
-        minHeight={Math.max(340, renderPx + 72)}
+        minHeight={Math.max(220, renderPx + 72)}
       >
         {style.src ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -230,7 +222,7 @@ export function RingMeasure({
           step={0.05}
           value={diameterMm}
           onChange={(e) => onDiameterChange(+e.target.value)}
-          className="h-4 flex-1"
+          className="h-11 min-w-0 flex-1"
           aria-label="Ring inner diameter"
         />
         <StepperButton label="Larger" onClick={() => nudge(0.1)}>
@@ -239,7 +231,7 @@ export function RingMeasure({
       </div>
 
       <p className="mono text-center text-[11px] text-[var(--muted)]">
-        Use ← → arrow keys for fine adjustment
+        − Smaller · Larger +
       </p>
 
       <div className="flex items-center justify-between gap-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3">
@@ -256,11 +248,14 @@ export function RingMeasure({
       </div>
 
       <StepNav onBack={onBack} onNext={onResult} nextLabel={nextLabel} />
+      <button type="button" onClick={onRecalibrate} className="block text-sm text-[var(--gold-deep)] underline underline-offset-4">
+        Adjust screen calibration
+      </button>
       {onSkip && (
         <button
           type="button"
           onClick={onSkip}
-          className="w-full rounded-xl border-2 border-[var(--ink)] bg-[var(--surface)] px-4 py-3 text-sm font-medium text-[var(--ink)] transition-colors hover:bg-[var(--surface-2)]"
+          className="w-full rounded-xl px-4 py-3 text-sm text-[var(--muted)] transition-colors hover:bg-[var(--surface-2)]"
         >
           {skipLabel}
         </button>

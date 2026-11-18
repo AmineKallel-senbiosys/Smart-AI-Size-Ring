@@ -1,0 +1,18 @@
+{
+  "repository": "https://huggingface.co/Acly/MobileSAM",
+  "revision": "0d3b403339b4674a82493d5e97964dd78089ddc8",
+  "files": [
+    {
+      "file": "mobile_sam_image_encoder.onnx",
+      "bytes": 28157093,
+      "sha256": "580f5fb648ea1062c0aabc26217aed56921985f03f0cbbd852bba81d760cc749",
+      "source": "https://huggingface.co/Acly/MobileSAM/resolve/0d3b403339b4674a82493d5e97964dd78089ddc8/mobile_sam_image_encoder.onnx"
+    },
+    {
+      "file": "sam_mask_decoder_single.onnx",
+      "bytes": 16501323,
+      "sha256": "93915fc7c993ab9d59ab8c9ccd3bce37f7509c81ab4150a74abd4d2abbd8570d",
+      "source": "https://huggingface.co/Acly/MobileSAM/resolve/0d3b403339b4674a82493d5e97964dd78089ddc8/sam_mask_decoder_single.onnx"
+    }
+  ]
+}

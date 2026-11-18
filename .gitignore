@@ -1,6 +1,4 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
-
-# dependencies
+# Dependencies
 /node_modules
 /.pnp
 .pnp.*
@@ -10,32 +8,65 @@
 !.yarn/releases
 !.yarn/versions
 
-# testing
-/coverage
-
-# next.js
+# Next.js / build
 /.next/
 /out/
-
-# production
 /build
+/dist
+*.tsbuildinfo
+next-env.d.ts
 
-# misc
-.DS_Store
-*.pem
+# Testing & coverage
+/coverage
+*.lcov
+.nyc_output
 
-# debug
+# Local run outputs / scratch
+/outputs/
+*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
-.env*
+# Env & secrets (keep .env.example)
+.env
+.env.*
+!.env.example
 
-# vercel
+# OS / editor
+.DS_Store
+Thumbs.db
+*.pem
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+ENV/
+
+# Velio local venv
+/velio/.venv/
+
+# One-hand service: local Python envs, captured people data
+/onehand-service/.venv/
+/onehand-service/.vision-tools/
+/onehand-service/__pycache__/
+/onehand-service/data/onehand/
+/onehand-service/data/validated/
+/onehand-service/data/*.csv
+/onehand-service/data/*.jsonl
+
+# Vercel
 .vercel
-
-# typescript
-*.tsbuildinfo
-next-env.d.ts

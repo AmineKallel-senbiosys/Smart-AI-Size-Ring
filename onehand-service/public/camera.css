@@ -1,0 +1,25 @@
+@import url('assets/inter.css');
+/* Shared capture primitives used only by the beta camera. */
+h1,h2,p{margin:0}
+.capture-page{position:fixed;inset:0;background:#191919;color:white;overflow:hidden}
+.capture-page video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.capture-page canvas{display:none}
+.scan-back{position:absolute;left:12px;top:12px;border:0;background:transparent;color:white;font-size:25px;padding:0 8px;z-index:5}
+.capture-reference{position:absolute;left:16px;top:40px;width:47px;height:69px;padding:4px;background:#fffc;border-radius:4px}
+.capture-reference svg{width:100%;height:100%}
+.capture-divider{position:absolute;top:40%;left:16px;right:16px;height:1px;background:#fff9}
+.capture-divider span{position:absolute;left:0;font-size:12px}
+.capture-divider span:first-child{bottom:7px}.capture-divider span:last-child{top:7px}
+.tilt-circle{position:absolute;width:84px;height:84px;border:2px solid #dc4975;border-radius:50%;display:grid;place-items:center;color:white;background:#3332}
+.tilt-circle.good{border-color:#4eda8b}
+.tilt-circle:before{content:'';width:15px;height:15px;border:1px solid #fff9;border-radius:50%}
+.tilt-target{position:absolute;left:calc(50% - 7px);top:calc(50% - 7px);width:14px;height:14px;border:1px solid white;border-radius:50%}
+.tilt-bubble{position:absolute;left:calc(50% - 4px);top:calc(50% - 4px);width:8px;height:8px;border:1px solid white;border-radius:50%;background:#fff7;box-shadow:0 0 8px #fff8}
+.tilt-value{position:absolute;width:100%;text-align:center;color:white}
+.angle-status{color:white;text-shadow:0 1px 4px #000}
+.orientation-permission{border:1px solid white;background:#152633d9;color:white;z-index:6}
+.capture-check{display:flex;gap:12px;align-items:center}.check-icon{color:#ddd}
+.capture-shutter{border:4px solid #bbb;border-radius:50%;flex:none}
+.capture-info{line-height:1.5;text-align:center;color:#ccc}
+.capture-countdown{position:absolute;left:calc(50% - 38px);width:76px;height:76px;background:#2171ffbb;border-radius:50%;display:grid;place-items:center;font-size:46px;font-weight:700}
+.capture-error{position:absolute;top:90px;left:16px;right:16px;text-align:center;background:#111b;padding:16px;font-size:14px;line-height:1.6;z-index:3}

@@ -1,0 +1,21 @@
+# Python deps for optional services used with this app.
+# Core web UI only needs: npm install
+#
+# Install (from repo root):
+#   python -m venv .venv
+#   .venv\Scripts\activate          # Windows
+#   # source .venv/bin/activate     # macOS / Linux
+#   pip install -r requirements.txt
+
+# --- onehand-service (camera / vision worker) ---
+numpy==2.4.6
+mediapipe==1.1.0
+opencv-contrib-python==5.0.0.93
+onnxruntime==1.31.0
+
+# --- velio (optional Fit-help / chat backend) ---
+fastapi>=0.115
+uvicorn>=0.32
+pyyaml>=6.0
+openai>=1.55
+python-dotenv>=1.0

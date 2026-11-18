@@ -6,9 +6,11 @@
     "dev": "next dev --port 3456 --webpack",
     "dev:lan": "next dev -H 0.0.0.0 --port 3456 --webpack",
     "tunnel": "ngrok http 127.0.0.1:3456",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start --port 3456",
-    "lint": "eslint"
+    "lint": "eslint",
+    "onehand": "node onehand-service/server.mjs",
+    "velio": "cd velio && python -m app.main"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",

@@ -21,6 +21,17 @@ const nextConfig: NextConfig = {
     "*.ngrok.io",
     "*.trycloudflare.com",
   ],
+  // Measurement service (onehand-service/, `npm run onehand`). Only the public flow is proxied.
+  // The admin/config/dashboard endpoints are deliberately NOT proxied: the service trusts
+  // requests from localhost, and through this proxy every visitor would look local.
+  async rewrites() {
+    const service = (process.env.ONEHAND_SERVICE_URL || "http://127.0.0.1:4185").replace(/\/$/, "");
+    return [
+      { source: "/api/inspect", destination: `${service}/api/inspect` },
+      { source: "/api/session", destination: `${service}/api/session` },
+      { source: "/api/session/:path*", destination: `${service}/api/session/:path*` },
+    ];
+  },
   serverExternalPackages: ["@huggingface/transformers", "sharp", "onnxruntime-node"],
   webpack: (config, { isServer }) => {
     if (!isServer) {

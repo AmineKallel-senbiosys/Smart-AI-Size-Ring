@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="theme-color" content="#ffffff"><title>velia — One-hand settings</title>
+<link rel="stylesheet" href="/beta.css">
+<link rel="stylesheet" href="/result.css">
+<style>
+.box{border:1px solid var(--line);border-radius:24px;padding:18px;background:#fbfcff;max-width:760px;margin-bottom:18px}
+.box h2{font-size:20px;margin:0 0 6px}
+.grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-top:12px}
+.grid.four{grid-template-columns:repeat(4,1fr)}
+.grid label,.one label{display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--mute)}
+.grid input,.one input,.pinrow input{height:44px;border:1px solid var(--line);border-radius:12px;padding:0 10px;background:#fff;font-size:15px;min-width:0;width:100%}
+.one{max-width:240px;margin-top:12px}
+.btns{display:flex;gap:10px;flex-wrap:wrap;margin-top:6px;align-items:center}
+.msg{font-size:13px;margin-top:10px}.msg.bad{color:#b04a4a}.msg.ok{color:#2e7d4f}
+.pinrow{display:flex;gap:8px;max-width:420px;margin-top:10px}
+.tag{display:inline-block;font-size:12px;padding:3px 9px;border-radius:999px;background:rgba(185,118,28,.16);color:#b9761c;margin-left:8px;vertical-align:middle}
+@media(max-width:560px){.grid,.grid.four{grid-template-columns:repeat(2,1fr)}}
+</style></head><body><main><div class="beta-shell"><nav class="beta-nav"><span class="beta-brand">velia</span><span class="beta-badge">ONE HAND SETTINGS</span></nav>
+<h1 style="margin-bottom:8px">One-hand settings</h1>
+<p class="muted" style="margin:0 0 20px;max-width:720px">These values are used only by <b>/onehand</b> (one photo of the back of the hand). The dashboard tables and the normal measurement are not affected. A change applies to the next measurement straight away. Male and female can have different values: pick the tab, edit, then Save (both tabs are saved together).</p>
+<div id="gate"></div>
+<div id="pg" hidden>
+<div class="btns" style="margin:0 0 14px"><button class="beta-btn blue" id="tab-male" type="button">Male</button><button class="beta-btn secondary" id="tab-female" type="button">Female</button><button class="beta-btn secondary" id="copy" type="button"></button></div>
+<section class="box"><h2>Offsets (mm) <span id="edited" class="tag" hidden>edited</span></h2><p class="muted" style="margin:0">C = π × W − offset, one value per finger.</p>
+<div class="grid" id="offs"></div></section>
+<section class="box"><h2>Size limits (mm)</h2><p class="muted" style="margin:0">A finger below the US 6 limit is US 6, between US 6 and US 8 is US 8, and so on. Above the US 12 limit there is no size.</p>
+<div class="grid four" id="lims"></div></section>
+<section class="box"><h2>Borderline distance (mm)</h2><p class="muted" style="margin:0">A finger closer than this to the top of its size also shows the next larger size (never a smaller one). 0 turns it off.</p>
+<div class="one"><label>Distance<input id="bl" type="number" step="0.1" min="0" max="5"></label></div></section>
+<div class="btns"><button class="beta-btn blue" id="save">Save</button><button class="beta-btn dark" id="reset-male" type="button">Reset male</button><button class="beta-btn dark" id="reset-female" type="button">Reset female</button><button class="beta-btn" id="reset" type="button">Reset both</button></div>
+<p class="msg" id="msg"></p>
+</div>
+</div></main>
+<script>
+const FING=['thumb','index','middle','ring','little'],LIM=['u6','u8','u10','u12'],cap=s=>s[0].toUpperCase()+s.slice(1);
+let PIN=null,S={male:null,female:null},CUR='male',EDITED={male:false,female:false};try{PIN=sessionStorage.getItem('adminPin');}catch{}
+const $=id=>document.getElementById(id),hdr=()=>({'Content-Type':'application/json','ngrok-skip-browser-warning':'1',...(PIN?{'x-admin-pin':PIN}:{})});
+const say=(t,bad)=>{$('msg').textContent=t;$('msg').className='msg '+(bad?'bad':'ok');};
+function fill(){
+ const c=S[CUR];
+ $('offs').innerHTML=FING.map(f=>`<label>${cap(f)}<input data-o="${f}" type="number" step="0.01" value="${c.offsets[f]}"></label>`).join('');
+ $('lims').innerHTML=LIM.map(k=>`<label>US ${k.slice(1)} limit<input data-l="${k}" type="number" step="0.01" value="${c[k]}"></label>`).join('');
+ $('bl').value=c.borderlineMm;$('edited').hidden=!EDITED[CUR];
+ $('tab-male').className='beta-btn '+(CUR==='male'?'blue':'secondary');$('tab-female').className='beta-btn '+(CUR==='female'?'blue':'secondary');
+ $('copy').textContent=CUR==='male'?'Copy these values to female':'Copy these values to male';
+ document.querySelectorAll('[data-o]').forEach(i=>i.oninput=()=>{const v=parseFloat(i.value);if(Number.isFinite(v))S[CUR].offsets[i.dataset.o]=v;});
+ document.querySelectorAll('[data-l]').forEach(i=>i.oninput=()=>{const v=parseFloat(i.value);if(Number.isFinite(v))S[CUR][i.dataset.l]=v;});
+ $('bl').oninput=()=>{const v=parseFloat($('bl').value);if(Number.isFinite(v))S[CUR].borderlineMm=v;};
+}
+const clone=o=>JSON.parse(JSON.stringify(o));
+function take(r){const a=r.active||{};S={male:clone(a.male||a),female:clone(a.female||a)};EDITED=r.editedBy||{male:!!r.edited,female:!!r.edited};}
+async function load(){const r=await (await fetch('/api/onehand-config',{headers:hdr()})).json();take(r);fill();if(!r.active?.male)say('The app is still running an older version: stop it and run npm start again so Male and Female are saved separately.',true);}
+async function init(){
+ const st=await (await fetch('/api/admin/status',{headers:hdr()})).json();
+ if(!st.ok){$('gate').innerHTML=`<div class="box"><p class="muted" style="margin-top:0">${st.hint}</p>${st.pinRequired?'<div class="pinrow"><input id="pin" type="password" placeholder="Admin PIN" aria-label="Admin PIN"><button class="beta-btn blue" id="pinok">Open</button></div><p class="msg bad" id="pinmsg"></p>':''}</div>`;
+  const b=$('pinok');if(b)b.onclick=async()=>{PIN=$('pin').value;const s2=await (await fetch('/api/admin/status',{headers:hdr()})).json();if(s2.ok){try{sessionStorage.setItem('adminPin',PIN);}catch{}$('gate').innerHTML='';$('pg').hidden=false;load();}else $('pinmsg').textContent='Wrong PIN.';};
+  return;}
+ $('pg').hidden=false;load();
+}
+$('tab-male').onclick=()=>{CUR='male';fill();};$('tab-female').onclick=()=>{CUR='female';fill();};
+$('copy').onclick=()=>{const other=CUR==='male'?'female':'male';S[other]=clone(S[CUR]);say(`Copied to ${other}. Press Save to keep it.`);};
+$('save').onclick=async()=>{
+ const r=await fetch('/api/onehand-config',{method:'PUT',headers:hdr(),body:JSON.stringify({male:S.male,female:S.female})}),j=await r.json();
+ if(!r.ok)return say(j.error||'Could not save.',true);take(j);fill();say('Saved for male and female. The next /onehand measurement uses these values.');
+};
+async function doReset(g){const r=await fetch('/api/onehand-config/reset',{method:'POST',headers:hdr(),body:JSON.stringify(g?{gender:g}:{})}),j=await r.json();if(!r.ok)return say(j.error||'Could not reset.',true);take(j);fill();say(g?`${cap(g)} is back to its default values.`:'Male and female are back to their default values.');}
+$('reset-male').onclick=()=>doReset('male');$('reset-female').onclick=()=>doReset('female');$('reset').onclick=()=>doReset();
+init();
+</script></body></html>

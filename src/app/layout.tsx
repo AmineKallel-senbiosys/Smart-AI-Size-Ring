@@ -1,23 +1,11 @@
 import type { Metadata, Viewport } from "next";
-import {
-  IBM_Plex_Mono,
-  Playfair_Display,
-  Source_Serif_4,
-} from "next/font/google";
+import { IBM_Plex_Mono, Inter } from "next/font/google";
 import { SiteFooter, SiteHeader } from "@/components/SiteChrome";
 import "./globals.css";
 
-const display = Playfair_Display({
-  variable: "--font-display",
+const inter = Inter({
+  variable: "--font-inter",
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-  style: ["normal", "italic"],
-});
-
-const body = Source_Serif_4({
-  variable: "--font-body",
-  subsets: ["latin"],
-  weight: ["300", "400", "500", "600"],
 });
 
 const mono = IBM_Plex_Mono({
@@ -28,15 +16,15 @@ const mono = IBM_Plex_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: "Airing — AI Ring Sizing from One Photo",
-    template: "%s · Airing",
+    default: "Velia Ring 360° — Find your ring size",
+    template: "%s · Velia",
   },
   description:
-    "Measure your ring size with a guided phone camera or calibrated screen sizer. Credit-card scale, US · UK · EU · JP sizes. Nothing uploaded.",
+    "Measure your finger online, or order a sizing kit. Find the Velia Ring 360° size that feels right.",
   openGraph: {
-    title: "Airing — AI Ring Sizing from One Photo",
+    title: "Velia Ring 360° — Find your ring size",
     description:
-      "Guided camera scan with a credit card reference — or measure on your screen. Private, on-device sizing.",
+      "Measure your finger, see one recommended size, and confirm a fit that stays secure.",
     type: "website",
     images: [{ url: "/icon.png" }],
   },
@@ -45,8 +33,7 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
-  themeColor: "#b8934a",
+  themeColor: "#ffffff",
   viewportFit: "cover",
 };
 
@@ -60,11 +47,12 @@ export default function RootLayout({
       lang="en"
       suppressHydrationWarning
       data-scroll-behavior="smooth"
-      className={`${display.variable} ${body.variable} ${mono.variable} h-full`}
+      className={`${inter.variable} ${mono.variable} h-full`}
     >
       <body className="flex min-h-full flex-col antialiased">
+        <a href="#main-content" className="skip-link">Skip to content</a>
         <SiteHeader />
-        <main className="flex-1">{children}</main>
+        <main id="main-content" className="flex-1">{children}</main>
         <SiteFooter />
       </body>
     </html>

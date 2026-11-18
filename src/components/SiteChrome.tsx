@@ -1,27 +1,15 @@
+"use client";
+
 import Link from "next/link";
 import { RingMark } from "@/components/RingMark";
+import { UiIcon } from "@/components/UiIcon";
 
 export function SiteHeader() {
   return (
-    <header className="sticky top-0 z-40 border-b border-[var(--border)]/80 bg-[var(--surface)]/90 backdrop-blur-md">
-      <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4 sm:px-6">
-        <Link
-          href="/"
-          className="flex items-center gap-2.5 font-[family-name:var(--font-display)] text-xl tracking-tight text-[var(--ink)]"
-        >
-          <RingMark size={22} />
-          <span>
-            Air<span className="text-[var(--gold-deep)]">ing</span>
-          </span>
-        </Link>
-        <nav className="flex items-center gap-1 sm:gap-2">
-          <Link
-            href="/explore"
-            className="gold-fill rounded-lg px-3.5 py-2 text-sm font-medium text-[var(--ink)] shadow-[inset_0_1px_0_rgba(255,255,255,0.4)] transition-[filter] hover:brightness-[1.04]"
-          >
-            Explore size
-          </Link>
-        </nav>
+    <header className="site-header">
+      <div className="site-header-inner">
+        <Link href="/" className="brand" aria-label="RingSize by Velio home"><RingMark size={30} /><span>RingSize<span className="brand-by"> by Velio</span></span></Link>
+        <span className="hidden items-center gap-2 text-xs text-[var(--muted)] lg:flex"><span className="h-1.5 w-1.5 rounded-full bg-[var(--ink)]" />Made for your fit</span>
       </div>
     </header>
   );
@@ -29,14 +17,11 @@ export function SiteHeader() {
 
 export function SiteFooter() {
   return (
-    <footer className="border-t border-[var(--border)] bg-[var(--surface)]">
-      <div className="mx-auto flex max-w-6xl flex-col gap-3 px-4 py-8 text-sm text-[var(--muted)] sm:flex-row sm:items-center sm:justify-between sm:px-6">
-        <p className="flex items-center gap-2 font-[family-name:var(--font-display)] text-[var(--ink)]">
-          <RingMark size={18} />
-          Airing
-        </p>
-        <p>Three measures · averaged · US 6 · 8 · 10 · 12</p>
-        <p className="mono text-xs">On-device · nothing uploaded</p>
+    <footer className="site-footer">
+      <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-6 gap-y-3 px-5 py-7 sm:px-8">
+        <Link href="/" className="text-base font-medium">RingSize <span className="font-normal text-[var(--muted)]">by Velio</span></Link>
+        <p className="text-xs text-[var(--muted)]">Designed around you.</p>
+        <p className="flex items-center gap-1.5 text-xs text-[var(--muted)]"><UiIcon name="shield" className="h-3.5 w-3.5" />Private measurements</p>
       </div>
     </footer>
   );

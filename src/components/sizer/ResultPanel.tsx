@@ -9,7 +9,8 @@ import {
   formatMm,
   formatUsSize,
 } from "@/lib/convert";
-import { Stage, StepHeading } from "./WizardShell";
+import { StepHeading } from "./WizardShell";
+import { UiIcon } from "@/components/UiIcon";
 
 type Props = {
   mode: "ring" | "finger";
@@ -20,6 +21,7 @@ type Props = {
 
 export function ResultPanel({ mode, valueMm, onAdjust, onRestart }: Props) {
   const [shared, setShared] = useState(false);
+  const [shareError, setShareError] = useState("");
 
   const converted = useMemo(
     () =>
@@ -36,32 +38,39 @@ export function ResultPanel({ mode, valueMm, onAdjust, onRestart }: Props) {
   const { row } = converted;
 
   const share = async () => {
+    setShareError("");
     const text = `My finger circumference is ${formatMm(circumferenceMm)} mm (Ø ${formatMm(diameterMm, 2)} mm · US ${formatUsSize(row.us)}, UK ${row.uk}, EU ${
       row.eu ?? "—"
-    }, JP ${row.jp ?? "—"}) — measured with Airing`;
+    }, JP ${row.jp ?? "—"}) — measured with RingSize by Velio`;
     if (navigator.share) {
       try {
         await navigator.share({ title: "My ring measure", text });
         return;
-      } catch {
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") return;
         /* fall back to clipboard */
       }
     }
-    await navigator.clipboard?.writeText(text);
-    setShared(true);
-    setTimeout(() => setShared(false), 1800);
+    try {
+      await navigator.clipboard.writeText(text);
+      setShared(true);
+      setTimeout(() => setShared(false), 1800);
+    } catch {
+      setShareError("Couldn’t copy. You can note the measurement above.");
+    }
   };
 
   return (
     <div className="space-y-5">
-      <StepHeading title="Your circumference">
-        Based on your measurement — saved automatically on this device.
+      <StepHeading title="Your measurement">
+        Saved on this device.
       </StepHeading>
 
-      <Stage caption="Your measured circumference">
+      <div className="result-hero">
+        <div className="result-icon"><UiIcon name="check" /></div>
         <div className="text-center">
           <p className="mono-label text-[var(--gold-deep)]">Circumference</p>
-          <p className="font-[family-name:var(--font-display)] text-6xl leading-none text-[var(--gold-light)]">
+          <p className="mt-4 font-[family-name:var(--font-display)] text-6xl leading-none text-[var(--ink)]">
             {formatMm(circumferenceMm)}
             <span className="ml-2 text-2xl text-[#8c7c66]">mm</span>
           </p>
@@ -69,7 +78,7 @@ export function ResultPanel({ mode, valueMm, onAdjust, onRestart }: Props) {
             Ø diameter {formatMm(diameterMm, 2)} mm
           </p>
         </div>
-      </Stage>
+      </div>
 
       <div className="grid grid-cols-4 gap-2">
         {[
@@ -91,7 +100,7 @@ export function ResultPanel({ mode, valueMm, onAdjust, onRestart }: Props) {
       </div>
 
       <p className="text-center text-sm text-[var(--muted)]">
-        Tip: for eternity bands or wide settings, consider adding ½ size.
+        Standard size equivalents. Check your ring’s fit before ordering.
       </p>
 
       <div className="flex gap-3">
@@ -112,11 +121,12 @@ export function ResultPanel({ mode, valueMm, onAdjust, onRestart }: Props) {
         <button
           type="button"
           onClick={share}
-          className="gold-fill flex-1 rounded-lg px-4 py-2.5 text-sm font-medium text-[var(--ink)] shadow-[inset_0_1px_0_rgba(255,255,255,0.4)] transition-[filter] hover:brightness-[1.04]"
+          className="btn-primary flex-1"
         >
           {shared ? "Copied" : "Share"}
         </button>
       </div>
+      {shareError && <p role="status" className="text-center text-xs text-[var(--muted)]">{shareError}</p>}
     </div>
   );
 }

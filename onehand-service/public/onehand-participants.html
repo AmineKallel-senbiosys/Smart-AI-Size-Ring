@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="theme-color" content="#ffffff"><title>velia — One-hand tests</title><link rel="stylesheet" href="/beta.css"><link rel="stylesheet" href="/result.css">
+<style>
+.pg{display:grid;grid-template-columns:1fr;gap:22px}
+@media(min-width:960px){.pg{grid-template-columns:340px 1fr;align-items:start}}
+.box{border:1px solid var(--line);border-radius:24px;padding:18px;background:#fbfcff;min-width:0}
+.box h2{font-size:20px;margin:0 0 12px}
+.tools{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+.tools input,.tools select,.fld input,.fld select,.frow select{height:42px;border:1px solid var(--line);border-radius:12px;padding:0 10px;background:#fff;font-size:14px;min-width:0}
+.tools input{flex:1;min-width:120px}
+.plist{display:flex;flex-direction:column;gap:6px;max-height:560px;overflow:auto}
+.pitem{text-align:left;border:1px solid var(--line);background:#fff;border-radius:14px;padding:10px 12px;font-size:14px;display:flex;flex-direction:column;gap:2px;cursor:pointer}
+.pitem small{color:var(--mute);font-size:12px}
+.pitem.on{border-color:var(--blue);background:var(--blue-bg)}
+.fld{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:14px}
+.fld label{display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--mute)}
+.photos{display:grid;grid-template-columns:minmax(0,260px);gap:8px;margin-bottom:16px}
+.photos figure{margin:0}.photos img{width:100%;aspect-ratio:3/4;object-fit:cover;border-radius:12px;background:var(--tint)}
+.photos figcaption{font-size:11px;color:var(--mute);text-align:center;margin-top:4px}
+.hand{margin-bottom:14px}.hand h3{font-size:15px;margin:0 0 8px}
+.frow{display:grid;grid-template-columns:110px 1fr 110px;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line);font-size:13px}
+.frow:last-child{border-bottom:0}.frow .app{color:var(--mute);font-size:12px}
+.frow select{height:36px;font-size:13px;width:100%}
+.btns{display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;align-items:center}
+.btns .danger{background:#b04a4a;color:#fff}
+.msg{font-size:13px;margin-top:10px}.msg.bad{color:#b04a4a}.msg.ok{color:#2e7d4f}
+.confirm{background:rgba(194,92,92,.08);border-radius:14px;padding:12px;margin-top:10px;font-size:13px}
+.st{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;font-size:13px;font-weight:700;flex:none}
+.st.ok{background:rgba(46,125,79,.14);color:#2e7d4f}.st.fit{background:rgba(185,118,28,.18);color:#b9761c}.st.size{background:rgba(194,92,92,.16);color:#b04a4a}.st.alt{background:rgba(33,113,255,.14);color:#2171ff}
+.frow.fit{background:rgba(185,118,28,.07)}.frow.size{background:rgba(194,92,92,.08)}.frow.alt{background:rgba(33,113,255,.06)}
+.frow b{display:flex;align-items:center;gap:8px}.frow{border-radius:10px;padding-left:6px;padding-right:6px}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:12px;color:var(--mute);margin:0 0 12px}.legend span{display:inline-flex;align-items:center;gap:6px}
+.chips2{display:flex;gap:4px;flex-wrap:wrap;margin-top:4px}.chips2 .st{width:auto;height:18px;border-radius:9px;padding:0 7px;font-size:11px}
+.pitem.off{opacity:.55}.pitem.off .offtag{display:inline-block}.offtag{display:none;font-size:11px;color:#b04a4a}
+.sw{display:flex;align-items:center;gap:10px;margin:0 0 14px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:#fff;font-size:14px;cursor:pointer}.sw input{width:20px;height:20px;accent-color:#2171ff}
+.empty{color:var(--mute);font-size:14px;padding:20px 4px}
+@media(max-width:560px){.frow{grid-template-columns:90px 1fr;}.frow .app{grid-column:1/-1}}
+</style></head><body><main><div class="beta-shell"><nav class="beta-nav"><span class="beta-brand">velia</span><span class="beta-badge">ONE-HAND TESTS</span></nav>
+<h1 style="margin-bottom:8px">One-hand tests</h1><p class="muted" style="margin:0 0 20px;max-width:720px">All tests validated on /onehand. Select one to see the photo, fix the gender or the sizes the user confirmed, or delete everything saved for that test. Deleting removes the folder and the test leaves the one-hand dashboard.</p>
+<div id="gate"></div><div class="pg" id="pg" hidden>
+<section class="box"><h2>All tests <span id="count" class="muted"></span></h2><div class="tools"><select id="hf" aria-label="Hand"><option value="all">Both hands</option><option value="left">Left</option><option value="right">Right</option></select><select id="gf" aria-label="Gender"><option value="all">All</option><option value="male">Male</option><option value="female">Female</option></select></div><div class="plist" id="list"></div></section>
+<section class="box" id="detail"><p class="empty">Select a test on the left.</p></section></div></div></main>
+<script>
+const FING=['little','ring','middle','index','thumb'],cap=s=>s[0].toUpperCase()+s.slice(1);
+let PIN=null,LIST=[],SEL=null,REC=null,photoUrl=null;
+try{PIN=sessionStorage.getItem('adminPin');}catch{}
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const hdr=()=>({'Content-Type':'application/json','ngrok-skip-browser-warning':'1',...(PIN?{'x-admin-pin':PIN}:{})});
+async function api(method,url,body){const r=await fetch(url,{method,headers:hdr(),body:body?JSON.stringify(body):undefined});const j=await r.json().catch(()=>({}));if(!r.ok)throw Object.assign(new Error(j.error||'Request failed'),{status:r.status});return j;}
+async function start(){
+ const st=await (await fetch('/api/admin/status',{headers:hdr()})).json(),gate=document.getElementById('gate');
+ if(!st.ok){gate.innerHTML=`<div class="box" style="max-width:520px"><p class="muted" style="margin-top:0">${esc(st.hint)}</p>${st.pinRequired?'<div class="tools"><input id="pin" type="password" placeholder="Admin PIN" aria-label="Admin PIN"><button class="beta-btn" id="pinok">Open</button></div><p class="msg bad" id="pinmsg"></p>':''}</div>`;
+  const b=document.getElementById('pinok');if(b)b.onclick=async()=>{PIN=document.getElementById('pin').value;const s2=await (await fetch('/api/admin/status',{headers:hdr()})).json();if(s2.ok){try{sessionStorage.setItem('adminPin',PIN);}catch{}gate.innerHTML='';open_();}else document.getElementById('pinmsg').textContent='Wrong PIN.';};return;}
+ gate.innerHTML='';open_();
+}
+function open_(){document.getElementById('pg').hidden=false;loadList();}
+async function loadList(keep){try{LIST=(await api('GET','/api/admin/onehand')).tests;}catch(e){document.getElementById('list').innerHTML=`<p class="empty">${esc(e.message)}</p>`;return;}drawList();if(keep&&LIST.some(p=>p.folder===keep))await select(keep);else if(SEL&&!LIST.some(p=>p.folder===SEL)){SEL=null;REC=null;document.getElementById('detail').innerHTML='<p class="empty">Select a test on the left.</p>';}}
+const ICON={ok:'✓',size:'✕',alt:'↔'},LAB={ok:'validated, same as the app',size:'wrong size',alt:'second suggestion'};
+function chips(s){if(!s)return '';return ['ok','alt','size'].filter(k=>s[k]).map(k=>`<span class="st ${k}" title="${LAB[k]}">${ICON[k]} ${s[k]}</span>`).join('');}
+function stateOf(a,u){const same=a.size?u.size===a.size:u.size==='none';if(same)return 'ok';return a.also&&u.size===a.also?'alt':'size';}
+function curUser(f){const s=document.querySelector(`#detail select[data-f="${f}"]`);return {size:s.value==='none'?'none':Number(s.value)};}
+function refreshStates(){for(const f of FING){const row=document.querySelector(`#detail .frow[data-f="${f}"]`);if(!row)continue;const k=stateOf(REC.fingers[f].app,curUser(f));row.className='frow '+k;const ic=row.querySelector('.st');ic.className='st '+k;ic.textContent=ICON[k];ic.title=LAB[k];}}
+function drawList(){
+ const h=document.getElementById('hf').value,g=document.getElementById('gf').value;
+ const rows=LIST.filter(p=>(g==='all'||p.gender===g)&&(h==='all'||p.hand===h));
+ document.getElementById('count').textContent=`(${rows.length} of ${LIST.length})`;
+ document.getElementById('list').innerHTML=rows.length?rows.map(p=>`<button class="pitem ${p.folder===SEL?'on':''} ${p.enabled===false?'off':''}" data-f="${esc(p.folder)}"><b>${cap(p.hand)} hand · ${p.gender?cap(p.gender):'gender unknown'}</b><small>${new Date(p.date).toLocaleString()}${p.edited?' · edited':''}</small><span class="offtag">Hidden from dashboard</span><span class="chips2">${chips(p.summary)}</span></button>`).join(''):'<p class="empty">No test found. They appear here after the user validates the sizes on /onehand.</p>';
+ document.querySelectorAll('.pitem').forEach(b=>b.onclick=()=>select(b.dataset.f));
+}
+async function select(folder){
+ SEL=folder;drawList();if(photoUrl){URL.revokeObjectURL(photoUrl);photoUrl=null;}const d=document.getElementById('detail');d.innerHTML='<p class="empty">Loading…</p>';
+ try{REC=await api('GET','/api/admin/onehand/'+encodeURIComponent(folder));}catch(e){d.innerHTML=`<p class="empty">${esc(e.message)}</p>`;return;}
+ const sizeOpts=v=>['none',6,8,10,12].map(n=>`<option value="${n}" ${String(v)===String(n)?'selected':''}>${n==='none'?'No size fits':'US '+n}</option>`).join('');
+ const appTxt=a=>a.size?`App: US ${a.size}${a.also?' (or '+a.also+')':''}`:'App: no size';
+ const rows=FING.map(f=>{const e=REC.fingers[f],k0=stateOf(e.app,e.user);return `<div class="frow ${k0}" data-f="${f}"><b><span class="st ${k0}" title="${LAB[k0]}">${ICON[k0]}</span>${cap(f)}</b><span class="app">${appTxt(e.app)}</span><select data-f="${f}" aria-label="${f} size">${sizeOpts(e.user.size)}</select></div>`;}).join('');
+ d.innerHTML=`<h2>${cap(REC.hand)} hand</h2><p class="muted" style="margin-top:-6px">${new Date(REC.date).toLocaleString()}</p><label class="sw"><input type="checkbox" id="en" ${(LIST.find(p=>p.folder===folder)||{}).enabled===false?'':'checked'}><span><b>Show in the dashboard</b><br><small class="muted">Untick to leave this participant out of the /onehand dashboard. The data is kept.</small></span></label><div class="photos"><figure><img alt="back of the hand" id="ph"><figcaption>${REC.hand} · back</figcaption></figure></div>
+ <div class="fld"><label>Gender<select id="gd"><option value="male" ${REC.gender==='male'?'selected':''}>Male</option><option value="female" ${REC.gender==='female'?'selected':''}>Female</option></select></label></div>
+ <div class="legend"><span><i class="st ok">✓</i> validated, same as the app</span><span><i class="st alt">↔</i> chose the second suggested size</span><span><i class="st size">✕</i> app size was wrong</span></div><p class="muted" style="margin:0 0 8px">Sizes the user confirmed (the "kit answer"). The app's own answer is shown for reference and is not changed. There is no fit message on /onehand.</p><div class="hand">${rows}</div>
+ <div class="btns"><button class="beta-btn" id="save">Save changes</button><button class="beta-btn danger" id="del">Delete all data of this test</button></div><div id="confirm"></div><p class="msg" id="msg"></p>`;
+ d.querySelectorAll('select[data-f]').forEach(s=>s.onchange=refreshStates);
+ if(!REC.gender){document.getElementById('gd').insertAdjacentHTML('afterbegin','<option value="" selected disabled>Choose…</option>');}
+ (async()=>{try{const r=await fetch(`/api/admin/onehand/${encodeURIComponent(folder)}/photo`,{headers:hdr()});if(!r.ok)return;photoUrl=URL.createObjectURL(await r.blob());const img=document.getElementById('ph');if(img)img.src=photoUrl;}catch{}})();
+ document.getElementById('en').onchange=async e=>{const box=e.target,v=box.checked;try{await api('PUT','/api/admin/onehand/'+encodeURIComponent(folder)+'/enabled',{enabled:v});const it=LIST.find(p=>p.folder===folder);if(it)it.enabled=v;drawList();msg(v?'Shown in the dashboard.':'Hidden from the dashboard.','ok');}catch(err){box.checked=!v;msg(err.message,'bad');}};
+ document.getElementById('save').onclick=save;document.getElementById('del').onclick=askDelete;
+}
+function msg(t,cls){const m=document.getElementById('msg');if(m){m.textContent=t;m.className='msg '+(cls||'');}}
+async function save(){
+ const fingers={};document.querySelectorAll('#detail select[data-f]').forEach(s=>{fingers[s.dataset.f]={size:s.value==='none'?'none':Number(s.value)};});
+ try{msg('Saving…');const r=await api('PUT','/api/admin/onehand/'+encodeURIComponent(SEL),{gender:document.getElementById('gd').value,fingers});await loadList(r.folder);msg('Saved.','ok');}catch(e){msg(e.message,'bad');}
+}
+function askDelete(){
+ document.getElementById('confirm').innerHTML=`<div class="confirm">Delete this test for good? The photo and the answers are removed and the test leaves the one-hand dashboard. This cannot be undone.<div class="btns"><button class="beta-btn danger" id="yes">Yes, delete everything</button><button class="beta-btn secondary" id="no">Cancel</button></div></div>`;
+ document.getElementById('no').onclick=()=>{document.getElementById('confirm').innerHTML='';};
+ document.getElementById('yes').onclick=async()=>{try{await api('DELETE','/api/admin/onehand/'+encodeURIComponent(SEL));SEL=null;REC=null;await loadList();document.getElementById('detail').innerHTML='<p class="empty">Deleted. Select another test.</p>';}catch(e){msg(e.message,'bad');}};
+}
+document.getElementById('hf').onchange=drawList;document.getElementById('gf').onchange=drawList;
+start();
+</script></body></html>

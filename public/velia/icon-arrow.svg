@@ -1,0 +1,26 @@
+<svg preserveAspectRatio="none" overflow="visible" style="display: block;" width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g id="24x24/ArrowLleft" clip-path="url(#clip0_0_26)">
+<g id="Vector" opacity="0.5" filter="url(#filter0_f_0_26)">
+<path d="M20 12H5" stroke="white" stroke-opacity="0.8"/>
+</g>
+<g id="Vector 128" opacity="0.5" filter="url(#filter1_f_0_26)">
+<path d="M11.5 5L4.5 12L11.5 19" stroke="white" stroke-opacity="0.8"/>
+</g>
+<path id="Union" d="M11.1465 4.6465C11.3417 4.45123 11.6583 4.45123 11.8535 4.6465C12.0488 4.84176 12.0488 5.15827 11.8535 5.35353L5.70703 11.5H20L20.1006 11.5098C20.3285 11.5563 20.5 11.7583 20.5 12C20.5 12.2417 20.3285 12.4437 20.1006 12.4902L20 12.5H5.70703L11.8535 18.6465C12.0488 18.8418 12.0488 19.1583 11.8535 19.3535C11.6583 19.5488 11.3417 19.5488 11.1465 19.3535L3.79297 12L11.1465 4.6465Z" fill="black"/>
+</g>
+<defs>
+<filter id="filter0_f_0_26" x="-1" y="5.5" width="27" height="13" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+<feFlood flood-opacity="0" result="BackgroundImageFix"/>
+<feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape"/>
+<feGaussianBlur stdDeviation="3" result="effect1_foregroundBlur_0_26"/>
+</filter>
+<filter id="filter1_f_0_26" x="-2.20711" y="-1.35355" width="20.0607" height="26.7071" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+<feFlood flood-opacity="0" result="BackgroundImageFix"/>
+<feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape"/>
+<feGaussianBlur stdDeviation="3" result="effect1_foregroundBlur_0_26"/>
+</filter>
+<clipPath id="clip0_0_26">
+<rect width="24" height="24" fill="white"/>
+</clipPath>
+</defs>
+</svg>

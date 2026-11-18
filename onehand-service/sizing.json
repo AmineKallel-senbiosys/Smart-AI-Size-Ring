@@ -1,0 +1,71 @@
+{
+ "about": "Best recipe from the 55-participant study: MobileSAM knuckle-band width (+/-8 mm), circumference = pi x width - per-finger offset, size boundaries fitted by cross-validation. Palm and back photos are averaged when both exist.",
+ "sizes": [
+  6,
+  8,
+  10,
+  12
+ ],
+ "both": {
+  "offsets": {
+   "thumb": 8.41,
+   "index": 2.96,
+   "middle": 1.86,
+   "ring": 1.67,
+   "little": 3.68
+  },
+  "u6": 51.64,
+  "u8": 57.6,
+  "u10": 63.86,
+  "u12": 68.23
+ },
+ "single": {
+  "offsets": {
+   "thumb": 8.19,
+   "index": 3.12,
+   "middle": 1.96,
+   "ring": 1.71,
+   "little": 3.93
+  },
+  "u6": 50.29,
+  "u8": 57.02,
+  "u10": 63.41,
+  "u12": 69.44
+ },
+ "fit": {
+  "about": "Inside each size band the circumference range is split in this order, smallest to largest: loose, ok, tight, nofit. Values are percent of the band width and should add up to 100.",
+  "order": [
+   "loose",
+   "ok",
+   "tight",
+   "nofit"
+  ],
+  "bands": {
+   "6": {
+    "loose": 18,
+    "ok": 66,
+    "tight": 16,
+    "nofit": 0
+   },
+   "8": {
+    "loose": 18,
+    "ok": 66,
+    "tight": 16,
+    "nofit": 0
+   },
+   "10": {
+    "loose": 18,
+    "ok": 66,
+    "tight": 16,
+    "nofit": 0
+   },
+   "12": {
+    "loose": 18,
+    "ok": 66,
+    "tight": 16,
+    "nofit": 0
+   }
+  }
+ },
+ "borderlineMm": 1
+}

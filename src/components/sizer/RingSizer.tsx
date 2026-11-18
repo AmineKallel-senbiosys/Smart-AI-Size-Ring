@@ -1,7 +1,6 @@
 "use client";
 
 import { AnimatePresence } from "framer-motion";
-import Link from "next/link";
 import { useEffect, useState } from "react";
 import {
   circumferenceToDiameter,
@@ -13,7 +12,7 @@ import {
   saveLastResult,
   type StoredCalibration,
 } from "@/lib/calibration";
-import { RingMark } from "@/components/RingMark";
+import { UiIcon } from "@/components/UiIcon";
 import { CalibrateStep } from "./CalibrateStep";
 import { FingerRuler } from "./FingerRuler";
 import { ResultPanel } from "./ResultPanel";
@@ -81,9 +80,9 @@ export function RingSizer() {
   return (
     <section
       id="sizer"
-      className="scroll-mt-24 rounded-[1.75rem] border border-[var(--border)] bg-[var(--surface)] p-9 shadow-[0_28px_70px_-32px_rgba(23,18,13,0.35)] sm:p-12"
+      className="wizard-card"
     >
-      <div className="mb-8 border-b border-[var(--border)] pb-6">
+      <div>
         <WizardProgress stepIndex={stepIndex[step]} onStepClick={jumpTo} />
       </div>
 
@@ -91,42 +90,25 @@ export function RingSizer() {
         {step === "start" && (
           <StepFade stepKey="start">
             <div className="space-y-8 text-center">
-              <div className="flex justify-center">
-                <RingMark size={81} />
+              <div className="intro-icon">
+                <UiIcon name="ruler" className="h-9 w-9" />
               </div>
               <div>
                 <h2 className="font-[family-name:var(--font-display)] text-[33px] leading-tight text-[var(--ink)]">
-                  Ready when you are
+                  Measure at your pace
                 </h2>
                 <p className="mx-auto mt-3 max-w-md text-base leading-relaxed text-[var(--muted)]">
-                  Calibrate once with a card or coin, then match a ring you own —
-                  or measure your finger with a paper strip.
+                  Match your screen, then measure a ring or paper strip.
                 </p>
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
-                {[
-                  { t: "¼ sizes", d: "Fine increments" },
-                  { t: "4 regions", d: "US · UK · EU · JP" },
-                  { t: "100%", d: "On-device" },
-                ].map((item) => (
-                  <div
-                    key={item.t}
-                    className="rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] px-3 py-5"
-                  >
-                    <p className="font-[family-name:var(--font-display)] text-[22px] text-[var(--ink)]">
-                      {item.t}
-                    </p>
-                    <p className="mono-label mt-2 text-[var(--muted)]">{item.d}</p>
-                  </div>
-                ))}
-              </div>
+              <div className="kit-list"><span>Card or coin</span><span>Ring or paper strip</span></div>
 
               <button
                 type="button"
                 disabled={!hydrated}
                 onClick={() => setStep("calibrate")}
-                className="gold-fill w-full rounded-xl px-6 py-4 text-base font-medium text-[var(--ink)] shadow-[inset_0_1px_0_rgba(255,255,255,0.4)] transition-[filter] hover:brightness-[1.04] disabled:opacity-50"
+                className="btn-primary w-full"
               >
                 Start measuring ›
               </button>
@@ -137,16 +119,9 @@ export function RingSizer() {
                   onClick={() => goMeasure()}
                   className="mono-label text-[var(--gold-deep)] underline underline-offset-4"
                 >
-                  Skip — screen already calibrated
+                  Use saved calibration
                 </button>
               )}
-
-              <Link
-                href="/scan"
-                className="block text-sm text-[var(--muted)] underline-offset-4 hover:text-[var(--ink)] hover:underline"
-              >
-                Or use the camera scan →
-              </Link>
             </div>
           </StepFade>
         )}

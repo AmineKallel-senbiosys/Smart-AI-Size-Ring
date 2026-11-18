@@ -1,0 +1,8 @@
+{
+  "name": "ring-size-finder",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Size-only ring sizing app: two photos (palm and back) with a card for scale, then your US ring size per finger.",
+  "scripts": {"start": "node server.mjs", "test": "node --test tests/*.test.mjs"}
+}

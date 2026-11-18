@@ -17,6 +17,8 @@ export type DetectedFinger = {
   xPct: number;
   yPct: number;
   dPct: number;
+  /** Finger width in source-image pixels at detection time */
+  widthPx: number;
   landmarkIndex: number;
   /** 0–1 quality of width estimate */
   confidence: number;
@@ -194,6 +196,7 @@ export function detectFingerFromLandmarks(
     xPct: seat.x * 100,
     yPct: seat.y * 100,
     dPct: clamp((diameterPx / frameW) * 100, 5, 18),
+    widthPx: diameterPx,
     landmarkIndex: RING_PIP,
     confidence,
   };
@@ -411,6 +414,7 @@ export async function detectFingerFromPhoto(
   const scale = Math.min(1, maxW / (img.naturalWidth || maxW));
   const w = Math.round((img.naturalWidth || maxW) * scale);
   const h = Math.round((img.naturalHeight || maxW) * scale);
+  const fullScale = (img.naturalWidth || w) / w;
   const canvas = document.createElement("canvas");
   canvas.width = w;
   canvas.height = h;
@@ -421,7 +425,9 @@ export async function detectFingerFromPhoto(
   const landmarker = await getHandLandmarkerImage();
   const result = landmarker.detect(canvas);
   if (!result.landmarks?.[0]) return null;
-  return detectFingerFromLandmarks(result.landmarks[0], w, h, imageData);
+  const finger = detectFingerFromLandmarks(result.landmarks[0], w, h, imageData);
+  if (!finger) return null;
+  return { ...finger, widthPx: finger.widthPx * fullScale };
 }
 
 /** EMA-smooth finger circle so it doesn't jitter frame-to-frame. */
@@ -436,6 +442,7 @@ export function smoothFinger(
     xPct: prev.xPct * (1 - alpha) + next.xPct * alpha,
     yPct: prev.yPct * (1 - alpha) + next.yPct * alpha,
     dPct: prev.dPct * (1 - alpha) + next.dPct * alpha,
+    widthPx: prev.widthPx * (1 - alpha) + next.widthPx * alpha,
     landmarkIndex: next.landmarkIndex,
     confidence: prev.confidence * (1 - alpha) + next.confidence * alpha,
   };

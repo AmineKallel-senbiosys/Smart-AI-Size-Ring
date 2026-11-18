@@ -1,76 +1,127 @@
 "use client";
 
-import { AnimatePresence, motion } from "framer-motion";
-import { useEffect, useMemo, useState } from "react";
+import { AnimatePresence } from "framer-motion";
+import { useEffect, useId, useState } from "react";
 import { RingMark } from "@/components/RingMark";
+import { UiIcon } from "@/components/UiIcon";
+import { SensorRing } from "@/components/SensorRing";
 import { CalibrateStep } from "@/components/sizer/CalibrateStep";
 import { FingerRuler } from "@/components/sizer/FingerRuler";
 import { RingMeasure } from "@/components/sizer/RingMeasure";
-import { StepFade, StepHeading } from "@/components/sizer/WizardShell";
-import { diameterToCircumference, formatMm } from "@/lib/convert";
+import { FingerPlanStep, fingerPhrase, nextFingerAdvice } from "@/components/explore/FingerPlanStep";
+import { ProgressSteps, StepFade, StepHeading } from "@/components/sizer/WizardShell";
+import { diameterToCircumference } from "@/lib/convert";
 import {
   loadCalibration,
   type StoredCalibration,
 } from "@/lib/calibration";
 import {
-  clearExploreMeasurements,
-  decideSize,
-  findCircumferenceOutlier,
-  fitFromColor,
+  activeFingerIndex,
+  validFingerPlan,
+  classifyCircumference,
+  consensusSize,
+  fitBandFor,
+  fitGuidance,
+  COMPETITOR_US_SIZES,
+  stockedFromCompetitorUs,
   loadExploreMeasurements,
   saveExploreMeasurements,
-  type CircumferenceOutlier,
   type ExploreMeasurements,
-  type FitLabel,
+  type FingerPick,
   type MeasureClassification,
   type SizeVerdict,
 } from "@/lib/explore-flow";
 
 type Step =
   | "intro"
+  | "measure-hand"
   | "calibrate"
   | "measure-ring"
   | "measure-finger"
-  | "collect"
-  | "result";
+  | "measure-jeweler"
+  | "measure-competitor"
+  | "reading"
+  | "result"
+  | "confirm";
 
-const stepIndex: Record<Step, number> = {
+type ReadingKey = "jeweler" | "competitor" | "ring" | "finger";
+
+const stepIndex: Record<Exclude<Step, "reading">, number> = {
   intro: 0,
-  calibrate: 1,
-  "measure-ring": 2,
-  "measure-finger": 2,
-  collect: 3,
-  result: 4,
+  "measure-hand": 0,
+  "measure-jeweler": 1,
+  "measure-competitor": 2,
+  calibrate: 3,
+  "measure-ring": 3,
+  "measure-finger": 4,
+  result: 5,
+  confirm: 5,
 };
 
-const PROGRESS_LABELS = ["Start", "Calibrate", "Measure", "Combine", "Result"];
+const readingIndex: Record<ReadingKey, number> = {
+  jeweler: 1,
+  competitor: 2,
+  ring: 3,
+  finger: 4,
+};
+
+const READING_LABEL: Record<ReadingKey, string> = {
+  jeweler: "Jeweler size",
+  competitor: "Competitor size",
+  ring: "Ring on screen",
+  finger: "Paper strip",
+};
+
+const PROGRESS_LABELS = ["Finger", "Jeweler", "Compare", "Ring", "Strip", "Size"];
+
+const EMPTY: ExploreMeasurements = {
+  ringCircMm: null,
+  fingerCircMm: null,
+  jewelerCircMm: null,
+  competitorCircMm: null,
+  ringSkipped: false,
+  fingerSkipped: false,
+  jewelerSkipped: false,
+  competitorSkipped: false,
+};
+
+const primaryBtn =
+  "btn-primary w-full";
+
+function formatReading(mm: number): string {
+  const hundredths = mm.toFixed(2);
+  return hundredths.endsWith("0") ? mm.toFixed(1) : hundredths;
+}
 
 export function ExploreFlow() {
   const [step, setStep] = useState<Step>("intro");
   const [calibration, setCalibration] = useState<StoredCalibration | null>(null);
   const [diameterMm, setDiameterMm] = useState(18.14);
   const [fingerCircMm, setFingerCircMm] = useState(57);
-  const [measures, setMeasures] = useState<ExploreMeasurements>({
-    ringCircMm: null,
-    fingerCircMm: null,
-    cameraCircMm: null,
-    ringSkipped: false,
-  });
+  const [jewelerDraft, setJewelerDraft] = useState<number | null>(null);
+  const [competitorDraft, setCompetitorDraft] = useState<number | null>(null);
+  const [measures, setMeasures] = useState<ExploreMeasurements>(EMPTY);
   const [verdict, setVerdict] = useState<SizeVerdict | null>(null);
+  const [sure, setSure] = useState(false);
   const [classifications, setClassifications] = useState<
     MeasureClassification[] | null
   >(null);
   const [hydrated, setHydrated] = useState(false);
-  const [scanUrl, setScanUrl] = useState("/scan");
-  const [copied, setCopied] = useState(false);
   const [askHaveRing, setAskHaveRing] = useState(false);
+  const [askStrip, setAskStrip] = useState(false);
+  const [showStripGuide, setShowStripGuide] = useState(false);
+  const [askJeweler, setAskJeweler] = useState(false);
+  const [askCompetitor, setAskCompetitor] = useState(false);
+  const [readingKey, setReadingKey] = useState<ReadingKey | null>(null);
+  const [wearPicks, setWearPicks] = useState<FingerPick[]>([]);
 
   useEffect(() => {
     setCalibration(loadCalibration());
-    setMeasures(loadExploreMeasurements());
-    if (typeof window !== "undefined") {
-      setScanUrl(`${window.location.origin}/scan`);
-    }
+    const saved = loadExploreMeasurements();
+    setMeasures(saved);
+    setJewelerDraft(saved.jewelerCircMm);
+    setCompetitorDraft(saved.competitorUs ?? null);
+    setWearPicks(saved.wearPicks?.length ? saved.wearPicks.map((pick) => ({ ...pick })) : []);
     setHydrated(true);
   }, []);
 
@@ -79,145 +130,270 @@ export function ExploreFlow() {
     saveExploreMeasurements(next);
   };
 
-  const goToRingStep = () => {
-    setAskHaveRing(true);
+  const bothReferenceSkipped = (source: ExploreMeasurements) =>
+    Boolean(source.jewelerSkipped && source.competitorSkipped);
+
+  const goToRingStep = (source: ExploreMeasurements = measures) => {
+    setAskHaveRing(!bothReferenceSkipped(source));
     setStep("measure-ring");
+  };
+
+  const goToStrip = (source: ExploreMeasurements = measures) => {
+    const required = bothReferenceSkipped(source);
+    setAskStrip(!required);
+    setShowStripGuide(required && !(Number(source.fingerCircMm) > 0 && !source.fingerSkipped));
+    setStep("measure-finger");
+  };
+
+  const goToHand = () => setStep("measure-hand");
+
+  const saveHand = () => {
+    if (!validFingerPlan(wearPicks)) return;
+    resetMeasurements({ ...EMPTY, wearPicks: wearPicks.map((pick) => ({ ...pick })), activeFingerIndex: 0 }, "measure-jeweler");
+  };
+
+  const goToCompetitor = () => {
+    setAskCompetitor(true);
+    setStep("measure-competitor");
+  };
+
+  const openReading = (key: ReadingKey, next: ExploreMeasurements) => {
+    persist(next);
+    setReadingKey(key);
+    setStep("reading");
   };
 
   const finishRing = () => {
     const circ = +diameterToCircumference(diameterMm).toFixed(1);
-    persist({ ...measures, ringCircMm: circ, ringSkipped: false });
     setFingerCircMm(circ);
-    setStep("measure-finger");
+    openReading("ring", { ...measures, ringCircMm: circ, ringSkipped: false });
   };
 
   const skipRing = () => {
+    if (bothReferenceSkipped(measures)) return;
     setAskHaveRing(false);
-    persist({ ...measures, ringCircMm: null, ringSkipped: true });
-    setStep("measure-finger");
+    const next = { ...measures, ringCircMm: null, ringSkipped: true };
+    persist(next);
+    goToStrip(next);
   };
 
   const finishFinger = () => {
     const circ = +fingerCircMm.toFixed(1);
-    persist({ ...measures, fingerCircMm: circ });
-    setStep("collect");
+    openReading("finger", { ...measures, fingerCircMm: circ, fingerSkipped: false });
   };
 
-  const showSize = () => {
-    const finger = Number(measures.fingerCircMm);
-    const camera = Number(measures.cameraCircMm);
-    if (![finger, camera].every((v) => Number.isFinite(v) && v > 0)) return;
+  const skipFinger = () => {
+    if (bothReferenceSkipped(measures)) return;
+    setAskStrip(false);
+    setShowStripGuide(false);
+    const next = { ...measures, fingerCircMm: null, fingerSkipped: true };
+    persist(next);
+    showSize(next);
+  };
 
-    const inputs = [];
-    if (!measures.ringSkipped) {
-      const ring = Number(measures.ringCircMm);
-      if (!(Number.isFinite(ring) && ring > 0)) return;
-      inputs.push({ key: "ring" as const, circMm: ring });
+  const goAfterCompetitor = (source: ExploreMeasurements = measures) => {
+    if (calibration) goToRingStep(source);
+    else setStep("calibrate");
+  };
+
+  const saveJeweler = () => {
+    if (!(Number(jewelerDraft) > 0)) return;
+    openReading("jeweler", {
+      ...measures,
+      jewelerCircMm: Number(jewelerDraft),
+      jewelerSkipped: false,
+    });
+  };
+
+  const skipJeweler = () => {
+    setAskJeweler(false);
+    persist({ ...measures, jewelerCircMm: null, jewelerSkipped: true });
+    goToCompetitor();
+  };
+
+  const saveCompetitor = () => {
+    const entered = Number(competitorDraft);
+    const stocked = stockedFromCompetitorUs(entered);
+    if (!stocked) return;
+    const tooLarge = stocked === "smaller-finger";
+    openReading("competitor", {
+      ...measures,
+      competitorUs: entered,
+      competitorTooLarge: tooLarge,
+      competitorCircMm: tooLarge ? null : fitBandFor(stocked).referenceMm,
+      competitorSkipped: false,
+    });
+  };
+
+  const skipCompetitor = () => {
+    setAskCompetitor(false);
+    const next = { ...measures, competitorCircMm: null, competitorUs: null, competitorTooLarge: false, competitorSkipped: true };
+    persist(next);
+    goAfterCompetitor(next);
+  };
+
+  const showSize = (source: ExploreMeasurements = measures) => {
+    if (!validFingerPlan(source.wearPicks)) {
+      goToHand();
+      return;
     }
-    inputs.push(
-      { key: "finger" as const, circMm: finger },
-      { key: "camera" as const, circMm: camera }
-    );
+    const inputs = [
+      !source.ringSkipped && Number(source.ringCircMm) > 0
+        ? { key: "ring" as const, circMm: Number(source.ringCircMm) }
+        : null,
+      !source.fingerSkipped && Number(source.fingerCircMm) > 0
+        ? { key: "finger" as const, circMm: Number(source.fingerCircMm) }
+        : null,
+      !source.jewelerSkipped && Number(source.jewelerCircMm) > 0
+        ? { key: "jeweler" as const, circMm: Number(source.jewelerCircMm) }
+        : null,
+      !source.competitorSkipped && Number(source.competitorCircMm) > 0
+        ? { key: "competitor" as const, circMm: Number(source.competitorCircMm) }
+        : null,
+    ].filter((item): item is { key: "ring" | "finger" | "jeweler" | "competitor"; circMm: number } => item != null);
 
-    const { verdict: next, classifications: cls } = decideSize(inputs);
+    if (bothReferenceSkipped(source)) {
+      if (!(Number(source.ringCircMm) > 0 && !source.ringSkipped)) {
+        goToRingStep(source);
+        return;
+      }
+      if (!(Number(source.fingerCircMm) > 0 && !source.fingerSkipped)) {
+        goToStrip(source);
+        return;
+      }
+    }
+
+    if (!inputs.length) {
+      setVerdict({ status: "remeasure" });
+      setClassifications([]);
+      setSure(false);
+      setStep("result");
+      return;
+    }
+    const { verdict: next, classifications: cls, sure: agreed } = consensusSize(inputs);
     setVerdict(next);
     setClassifications(cls);
+    setSure(agreed);
     setStep("result");
   };
 
-  const restart = () => {
-    clearExploreMeasurements();
-    setMeasures({
-      ringCircMm: null,
-      fingerCircMm: null,
-      cameraCircMm: null,
-      ringSkipped: false,
-    });
+  const resetMeasurements = (kept: ExploreMeasurements, target: Step) => {
+    saveExploreMeasurements(kept);
+    setMeasures(kept);
+    setJewelerDraft(null);
+    setCompetitorDraft(null);
     setVerdict(null);
     setClassifications(null);
+    setSure(false);
     setAskHaveRing(false);
-    setStep("intro");
+    setAskStrip(false);
+    setShowStripGuide(false);
+    setAskJeweler(false);
+    setAskCompetitor(false);
+    setReadingKey(null);
+    setDiameterMm(18.14);
+    setFingerCircMm(57);
+    setStep(target);
+    if (target === "measure-jeweler") setAskJeweler(true);
   };
 
-  const copyLink = async () => {
-    try {
-      await navigator.clipboard.writeText(scanUrl);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
-    } catch {
-      /* ignore */
+  const repeatFinger = () => resetMeasurements({
+    ...EMPTY, wearPicks: measures.wearPicks,
+    activeFingerIndex: activeFingerIndex(measures),
+  }, "measure-jeweler");
+
+  const moveToNextFinger = () => {
+    if (!validFingerPlan(measures.wearPicks) || activeFingerIndex(measures) >= 2) {
+      goToHand();
+      return;
+    }
+    resetMeasurements({ ...EMPTY, wearPicks: measures.wearPicks,
+      activeFingerIndex: activeFingerIndex(measures) + 1,
+    }, "measure-jeweler");
+  };
+
+  const restart = () => resetMeasurements({ ...EMPTY }, "intro");
+
+  const readingValue = (key: ReadingKey) => {
+    if (key === "jeweler") return measures.jewelerCircMm;
+    if (key === "competitor") return measures.competitorCircMm;
+    if (key === "ring") return measures.ringCircMm;
+    return measures.fingerCircMm;
+  };
+
+  const continueReading = () => {
+    if (readingKey === "jeweler") goToCompetitor();
+    else if (readingKey === "competitor") goAfterCompetitor();
+    else if (readingKey === "ring") goToStrip();
+    else showSize();
+  };
+
+  const backFromReading = () => {
+    if (readingKey === "jeweler") {
+      setAskJeweler(false);
+      setStep("measure-jeweler");
+    } else if (readingKey === "competitor") {
+      setAskCompetitor(false);
+      setStep("measure-competitor");
+    } else if (readingKey === "ring") {
+      setAskHaveRing(false);
+      setStep("measure-ring");
+    } else {
+      setAskStrip(false);
+      setStep("measure-finger");
     }
   };
 
-  const canSubmit =
-    (Boolean(measures.ringSkipped) || Number(measures.ringCircMm) > 0) &&
-    Number(measures.fingerCircMm) > 0 &&
-    Number(measures.cameraCircMm) > 0;
-
-  const progressIdx = Math.min(stepIndex[step], 4);
+  const progressIdx = step === "reading" ? readingIndex[readingKey ?? "jeweler"] : stepIndex[step];
 
   return (
-    <section className="scroll-mt-24 rounded-[1.75rem] border border-[var(--border)] bg-[var(--surface)] p-9 shadow-[0_28px_70px_-32px_rgba(23,18,13,0.35)] sm:p-12">
-      <div className="mb-8 border-b border-[var(--border)] pb-6">
-        <ExploreProgress stepIndex={progressIdx} labels={PROGRESS_LABELS} />
+    <section className="wizard-card">
+      <div>
+        <ProgressSteps stepIndex={progressIdx} labels={PROGRESS_LABELS} />
       </div>
 
+      {!["intro", "measure-hand"].includes(step) && measures.wearPicks?.[activeFingerIndex(measures)] && (
+        <p className="my-4 text-center text-sm text-[var(--ink)]" aria-live="polite">
+          Measuring your {fingerPhrase(measures.wearPicks[activeFingerIndex(measures)].hand, measures.wearPicks[activeFingerIndex(measures)].finger)}
+          <span className="ml-2 text-[var(--muted)]">Choice {activeFingerIndex(measures) + 1} of 3</span>
+        </p>
+      )}
       <AnimatePresence mode="wait">
         {step === "intro" && (
           <StepFade stepKey="intro">
             <div className="space-y-8 text-center">
-              <div className="flex justify-center">
-                <RingMark size={81} />
+              <div className="mx-auto w-32">
+                <SensorRing tone="light" />
               </div>
               <div>
                 <h2 className="font-[family-name:var(--font-display)] text-[33px] leading-tight text-[var(--ink)]">
-                  Let&apos;s explore your size
+                  Let’s find your fit
                 </h2>
                 <p className="mx-auto mt-3 max-w-md text-base leading-relaxed text-[var(--muted)]">
-                  Three measurements — a ring on screen if you have one, a
-                  paper strip, then the camera on your phone. Each one is
-                  checked against our fit zones, then we propose a size.
+                  Add the measurements you have. Skip any you don’t.
                 </p>
-              </div>
-
-              <div className="grid grid-cols-3 gap-3 text-left">
-                {[
-                  { n: "01", t: "Use a ring", d: "Optional — skip if none" },
-                  { n: "02", t: "Measure finger", d: "Paper strip" },
-                  { n: "03", t: "Camera", d: "On your phone" },
-                ].map((item) => (
-                  <div
-                    key={item.n}
-                    className="rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] px-3 py-5"
-                  >
-                    <p className="mono text-[10px] text-[var(--gold)]">{item.n}</p>
-                    <p className="mt-1 font-[family-name:var(--font-display)] text-lg text-[var(--ink)]">
-                      {item.t}
-                    </p>
-                    <p className="mono-label mt-2 text-[var(--muted)]">{item.d}</p>
-                  </div>
-                ))}
               </div>
 
               <button
                 type="button"
                 disabled={!hydrated}
-                onClick={() => setStep("calibrate")}
-                className="gold-fill w-full rounded-xl px-6 py-4 text-base font-medium text-[var(--ink)] shadow-[inset_0_1px_0_rgba(255,255,255,0.4)] transition-[filter] hover:brightness-[1.04] disabled:opacity-50"
+                onClick={goToHand}
+                className={primaryBtn}
               >
-                Start exploring ›
+                Get started <UiIcon name="arrow" />
               </button>
-
-              {calibration && (
-                <button
-                  type="button"
-                  onClick={goToRingStep}
-                  className="mono-label text-[var(--gold-deep)] underline underline-offset-4"
-                >
-                  Skip — screen already calibrated
-                </button>
-              )}
             </div>
+          </StepFade>
+        )}
+
+        {step === "measure-hand" && (
+          <StepFade stepKey="measure-hand">
+            <FingerPlanStep
+              picks={wearPicks}
+              onPicksChange={setWearPicks}
+              onBack={() => setStep("intro")}
+              onContinue={saveHand}
+            />
           </StepFade>
         )}
 
@@ -226,14 +402,22 @@ export function ExploreFlow() {
             <CalibrateStep
               initial={calibration}
               onSaved={setCalibration}
-              onBack={() => setStep("intro")}
+              onBack={goToCompetitor}
               onContinue={goToRingStep}
             />
           </StepFade>
         )}
 
         {step === "measure-ring" && calibration && (
-          <StepFade stepKey="measure-ring">
+          <StepFade stepKey={askHaveRing ? "ring-choice" : "measure-ring"}>
+            {askHaveRing ? (
+              <HaveRingChoice onYes={() => setAskHaveRing(false)} onSkip={skipRing} />
+            ) : <>
+            {bothReferenceSkipped(measures) && (
+              <p className="mb-4 text-center text-sm leading-relaxed text-[var(--muted)]">
+                Ring measure and the paper strip are both required.
+              </p>
+            )}
             <RingMeasure
               calibration={calibration}
               diameterMm={diameterMm}
@@ -242,40 +426,105 @@ export function ExploreFlow() {
               onRecalibrate={() => setStep("calibrate")}
               onSwitchFinger={() => {}}
               onResult={finishRing}
-              onSkip={skipRing}
+              onSkip={bothReferenceSkipped(measures) ? undefined : skipRing}
               guided
-              nextLabel="Next step"
+              nextLabel="Save ring size"
             />
+            </>}
           </StepFade>
         )}
 
         {step === "measure-finger" && calibration && (
-          <StepFade stepKey="measure-finger">
-            <FingerRuler
-              calibration={calibration}
-              circumferenceMm={fingerCircMm}
-              onCircumferenceChange={setFingerCircMm}
-              onBack={goToRingStep}
-              onRecalibrate={() => setStep("calibrate")}
-              onSwitchRing={() => {}}
-              onResult={finishFinger}
-              guided
-              nextLabel="Next step"
-            />
+          <StepFade stepKey={askStrip ? "strip-choice" : "measure-finger"}>
+            {askStrip ? (
+              <HaveValueChoice
+                title="Measure with a paper strip?"
+                body="Wrap a strip of paper around your finger and mark where it overlaps."
+                yesLabel="Yes, show me how"
+                noLabel="Skip paper strip"
+                onYes={() => setShowStripGuide(true)}
+                onNo={skipFinger}
+              />
+            ) : (
+              <>
+              {bothReferenceSkipped(measures) && (
+                <p className="mb-4 text-center text-sm leading-relaxed text-[var(--muted)]">
+                  Ring measure and the paper strip are both required.
+                </p>
+              )}
+              <FingerRuler
+                calibration={calibration}
+                circumferenceMm={fingerCircMm}
+                onCircumferenceChange={setFingerCircMm}
+                onBack={goToRingStep}
+                onRecalibrate={() => setStep("calibrate")}
+                onSwitchRing={() => {}}
+                onResult={finishFinger}
+                guided
+                nextLabel="Save strip length"
+              />
+              </>
+            )}
           </StepFade>
         )}
 
-        {step === "collect" && (
-          <StepFade stepKey="collect">
-            <CollectStep
-              measures={measures}
-              scanUrl={scanUrl}
-              copied={copied}
-              canSubmit={canSubmit}
-              onChange={persist}
-              onCopy={copyLink}
-              onBack={() => setStep("measure-finger")}
-              onSubmit={showSize}
+        {step === "measure-jeweler" && (
+          <StepFade stepKey={askJeweler ? "jeweler-choice" : "measure-jeweler"}>
+            {askJeweler ? (
+              <HaveValueChoice
+                title="Do you have a jeweler size?"
+                body="Use the circumference in millimetres from a jeweler, if you have one."
+                yesLabel="Yes, I have it"
+                noLabel="No jeweler size"
+                onYes={() => setAskJeweler(false)}
+                onNo={skipJeweler}
+                onBack={goToHand}
+              />
+            ) : (
+              <ManualCircStep
+                title="Jeweler size"
+                body="Enter the circumference they gave you."
+                value={jewelerDraft}
+                onChange={setJewelerDraft}
+                onBack={() => setAskJeweler(true)}
+                onSave={saveJeweler}
+                saveLabel="Save jeweler size"
+              />
+            )}
+          </StepFade>
+        )}
+
+        {step === "measure-competitor" && (
+          <StepFade stepKey={askCompetitor ? "competitor-choice" : "measure-competitor"}>
+            {askCompetitor ? (
+              <HaveValueChoice
+                title="Do you have a competitor size?"
+                body="Use the US size from another ring brand, from US 5 to US 14."
+                yesLabel="Yes, I have it"
+                noLabel="No competitor size"
+                onYes={() => setAskCompetitor(false)}
+                onNo={skipCompetitor}
+              />
+            ) : (
+              <CompetitorSizeStep
+                value={competitorDraft}
+                onChange={setCompetitorDraft}
+                onBack={() => setAskCompetitor(true)}
+                onSave={saveCompetitor}
+              />
+            )}
+          </StepFade>
+        )}
+
+        {step === "reading" && readingKey && (
+          <StepFade stepKey={`reading-${readingKey}`}>
+            <StepReading
+              label={READING_LABEL[readingKey]}
+              mm={readingKey === "competitor" ? null : readingValue(readingKey)}
+              picked={readingKey === "competitor" ? { entered: measures.competitorUs ?? null, tooLarge: Boolean(measures.competitorTooLarge) } : null}
+              continueLabel={readingKey === "finger" ? "See my size" : "Continue"}
+              onBack={backFromReading}
+              onContinue={continueReading}
             />
           </StepFade>
         )}
@@ -284,28 +533,42 @@ export function ExploreFlow() {
           <StepFade stepKey="result">
             <ExploreResult
               verdict={verdict}
+              sure={sure}
               classifications={classifications}
               measures={measures}
+              onRestart={repeatFinger}
+              onNextFinger={moveToNextFinger}
+              onBack={goToStrip}
+              onConfirm={() => setStep("confirm")}
+            />
+          </StepFade>
+        )}
+
+        {step === "confirm" && verdict?.status === "size" && (
+          <StepFade stepKey="confirm">
+            <ConfirmFit
+              us={verdict.us}
               onRestart={restart}
-              onBack={() => setStep("collect")}
             />
           </StepFade>
         )}
       </AnimatePresence>
 
-      <AnimatePresence>
-        {askHaveRing && (
-          <HaveRingDialog
-            onYes={() => setAskHaveRing(false)}
-            onSkip={skipRing}
-          />
-        )}
-      </AnimatePresence>
+      {showStripGuide && (
+        <PaperStripGuide
+          onReady={() => {
+            setShowStripGuide(false);
+            setAskStrip(false);
+          }}
+          onClose={() => setShowStripGuide(false)}
+        />
+      )}
+
     </section>
   );
 }
 
-function HaveRingDialog({
+function HaveRingChoice({
   onYes,
   onSkip,
 }: {
@@ -313,267 +576,252 @@ function HaveRingDialog({
   onSkip: () => void;
 }) {
   return (
-    <motion.div
-      className="fixed inset-0 z-[80] flex items-center justify-center bg-[rgba(23,18,13,0.55)] p-5"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.2 }}
-    >
-      <motion.div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="have-ring-title"
-        initial={{ opacity: 0, y: 16, scale: 0.97 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        exit={{ opacity: 0, y: 8, scale: 0.98 }}
-        transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
-        className="w-full max-w-md rounded-[1.5rem] border border-[var(--border)] bg-[var(--surface)] px-7 py-8 text-center shadow-[0_28px_70px_-24px_rgba(23,18,13,0.5)]"
-      >
-        <div className="flex justify-center">
+      <div className="py-5 text-center">
+        <div className="intro-icon">
           <RingMark size={56} />
         </div>
-        <h3
+        <h2
           id="have-ring-title"
           className="mt-5 font-[family-name:var(--font-display)] text-[28px] leading-tight text-[var(--ink)]"
         >
           Do you have a ring?
-        </h3>
+        </h2>
         <p className="mx-auto mt-3 max-w-sm text-sm leading-relaxed text-[var(--muted)]">
-          If a ring already fits this finger, we can match it on screen. If you
-          don&apos;t have one, skip this step — it won&apos;t count in your
-          size.
+          Use a ring that fits this finger.
         </p>
         <div className="mt-7 flex flex-col gap-3">
           <button
             type="button"
             onClick={onYes}
-            className="gold-fill w-full rounded-xl px-5 py-3.5 text-base font-medium text-[var(--ink)] shadow-[inset_0_1px_0_rgba(255,255,255,0.4)] transition-[filter] hover:brightness-[1.04]"
+            className={primaryBtn}
           >
-            Yes, I have a ring
+            Yes, use my ring
           </button>
           <button
             type="button"
             onClick={onSkip}
-            className="w-full rounded-xl border-2 border-[var(--ink)] bg-[var(--surface)] px-5 py-3.5 text-base font-medium text-[var(--ink)] transition-colors hover:bg-[var(--surface-2)]"
+            className="btn-secondary w-full"
           >
-            I don&apos;t have a ring — skip
+            No ring? Skip
           </button>
         </div>
-      </motion.div>
-    </motion.div>
+      </div>
   );
 }
 
-function ExploreProgress({
-  stepIndex,
-  labels,
+function HaveValueChoice({
+  title,
+  body,
+  yesLabel,
+  noLabel,
+  onYes,
+  onNo,
+  onBack,
 }: {
-  stepIndex: number;
-  labels: string[];
+  title: string;
+  body: string;
+  yesLabel: string;
+  noLabel: string;
+  onYes: () => void;
+  onNo: () => void;
+  onBack?: () => void;
 }) {
   return (
-    <ol className="flex items-center gap-1.5">
-      {labels.map((label, i) => {
-        const active = i === stepIndex;
-        const done = i < stepIndex;
-        return (
-          <li key={label} className="flex min-w-0 flex-1 items-center gap-1.5">
-            <span className="flex min-w-0 items-center gap-1.5">
-              <span
-                className={`mono flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full text-[10px] leading-none ${
-                  active
-                    ? "bg-[var(--ink)] text-[var(--bg)]"
-                    : done
-                      ? "gold-fill text-[var(--ink)]"
-                      : "bg-[var(--surface-2)] text-[var(--muted)]"
-                }`}
-              >
-                {done ? "✓" : i + 1}
-              </span>
-              <span
-                className={`mono-label truncate ${
-                  active
-                    ? "text-[var(--ink)]"
-                    : done
-                      ? "text-[var(--gold-deep)]"
-                      : "text-[var(--muted)]"
-                }`}
-              >
-                {label}
-              </span>
-            </span>
-            {i < labels.length - 1 && (
-              <span className="h-px min-w-2 flex-1 bg-[var(--border)]" aria-hidden />
-            )}
-          </li>
-        );
-      })}
-    </ol>
+    <div className="py-5 text-center">
+      <h2 className="font-[family-name:var(--font-display)] text-[28px] leading-tight text-[var(--ink)]">
+        {title}
+      </h2>
+      <p className="mx-auto mt-3 max-w-sm text-sm leading-relaxed text-[var(--muted)]">{body}</p>
+      <div className="mt-7 flex flex-col gap-3">
+        <button type="button" onClick={onYes} className={primaryBtn}>{yesLabel}</button>
+        <button type="button" onClick={onNo} className="btn-secondary w-full">{noLabel}</button>
+        {onBack && (
+          <button type="button" onClick={onBack} className="text-sm text-[var(--muted)] underline-offset-4 hover:underline">
+            ‹ Back
+          </button>
+        )}
+      </div>
+    </div>
   );
 }
 
-function CollectStep({
-  measures,
-  scanUrl,
-  copied,
-  canSubmit,
+function CompetitorSizeStep({
+  value,
   onChange,
-  onCopy,
   onBack,
-  onSubmit,
+  onSave,
 }: {
-  measures: ExploreMeasurements;
-  scanUrl: string;
-  copied: boolean;
-  canSubmit: boolean;
-  onChange: (m: ExploreMeasurements) => void;
-  onCopy: () => void;
+  value: number | null;
+  onChange: (value: number | null) => void;
   onBack: () => void;
-  onSubmit: () => void;
+  onSave: () => void;
 }) {
-  const outlier = useMemo((): CircumferenceOutlier | null => {
-    const finger = Number(measures.fingerCircMm);
-    const camera = Number(measures.cameraCircMm);
-    if (![finger, camera].every((v) => Number.isFinite(v) && v > 0)) {
-      return null;
-    }
-    const ring =
-      measures.ringSkipped || !(Number(measures.ringCircMm) > 0)
-        ? null
-        : Number(measures.ringCircMm);
-    return findCircumferenceOutlier({ ring, finger, camera });
-  }, [
-    measures.ringCircMm,
-    measures.fingerCircMm,
-    measures.cameraCircMm,
-    measures.ringSkipped,
-  ]);
-
+  const inputId = useId();
   return (
     <div className="space-y-6">
-      <StepHeading title="Combine your measures">
-        Enter each circumference in millimetres. Finish the camera scan on your
-        phone, then type the Circ value here. Skip the ring if you don&apos;t
-        have one.
-      </StepHeading>
-
-      {measures.ringSkipped ? (
-        <div className="rounded-2xl border border-dashed border-[var(--border)] bg-[var(--surface-2)] p-4">
-          <p className="mono-label text-[var(--muted)]">1 · Using a ring</p>
-          <p className="mt-2 font-[family-name:var(--font-display)] text-xl text-[var(--ink)]">
-            Skipped
-          </p>
-          <p className="mt-1 text-sm text-[var(--muted)]">
-            You don&apos;t have a ring — this measure won&apos;t be used in
-            your size result.
-          </p>
-          <button
-            type="button"
-            onClick={() =>
-              onChange({ ...measures, ringSkipped: false, ringCircMm: null })
-            }
-            className="mono-label mt-3 text-[var(--gold-deep)] underline underline-offset-4"
-          >
-            I have a ring — enter a value
-          </button>
-        </div>
-      ) : (
-        <div className="space-y-2">
-          <CircInput
-            label="1 · Using a ring"
-            hint="From the screen ring match"
-            value={measures.ringCircMm}
-            onChange={(v) =>
-              onChange({ ...measures, ringCircMm: v, ringSkipped: false })
-            }
-            highlight={outlier?.key === "ring"}
-          />
-          <button
-            type="button"
-            onClick={() =>
-              onChange({ ...measures, ringCircMm: null, ringSkipped: true })
-            }
-            className="w-full rounded-xl border-2 border-[var(--ink)] bg-[var(--surface)] px-4 py-3 text-sm font-medium text-[var(--ink)] transition-colors hover:bg-[var(--surface-2)]"
-          >
-            I don&apos;t have a ring — skip
-          </button>
-        </div>
-      )}
-      <CircInput
-        label="2 · Measure finger"
-        hint="From the paper strip ruler"
-        value={measures.fingerCircMm}
-        onChange={(v) => onChange({ ...measures, fingerCircMm: v })}
-        highlight={outlier?.key === "finger"}
-      />
-
-      <div
-        className={`space-y-3 rounded-2xl border p-4 ${
-          outlier?.key === "camera"
-            ? "border-[var(--warn)] bg-[#fdf6ef]"
-            : "border-[var(--border)] bg-[var(--surface-2)]"
-        }`}
-      >
-        <p className="mono-label text-[var(--gold-deep)]">3 · Camera on your phone</p>
-        <p className="text-sm leading-relaxed text-[var(--muted)]">
-          Open this link on your mobile to finish the camera scan, then enter
-          the circumference it shows.
-        </p>
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          <code className="min-w-0 flex-1 truncate rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-xs text-[var(--ink)]">
-            {scanUrl}
-          </code>
-          <button
-            type="button"
-            onClick={onCopy}
-            className="gold-fill shrink-0 rounded-lg px-4 py-2.5 text-sm font-medium text-[var(--ink)] shadow-[inset_0_1px_0_rgba(255,255,255,0.4)]"
-          >
-            {copied ? "Copied" : "Copy link"}
-          </button>
-        </div>
-        <CircInput
-          label="Camera circumference"
-          hint="Paste the Circ (mm) from your phone scan"
-          value={measures.cameraCircMm}
-          onChange={(v) => onChange({ ...measures, cameraCircMm: v })}
-          bare
-          highlight={outlier?.key === "camera"}
-        />
+      <StepHeading title="Competitor size">Enter the US size from the other brand.</StepHeading>
+      <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
+        <label htmlFor={inputId} className="mono-label text-[var(--muted)]">US size</label>
+        <p id={`${inputId}-hint`} className="mt-1 text-xs text-[var(--muted)]">US 5 to US 14</p>
+        <select
+          id={inputId}
+          aria-describedby={`${inputId}-hint`}
+          value={value ?? ""}
+          onChange={(event) => onChange(event.target.value === "" ? null : Number(event.target.value))}
+          className="mt-2 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-3 text-lg text-[var(--ink)] outline-none focus:border-[var(--gold)]"
+        >
+          <option value="">Select a size</option>
+          {COMPETITOR_US_SIZES.map((size) => (
+            <option key={size} value={size}>US {size}</option>
+          ))}
+        </select>
       </div>
-
-      {outlier && (
-        <div
-          role="alert"
-          className="rounded-2xl border border-[var(--warn)] bg-[#fdf6ef] px-4 py-4 text-sm leading-relaxed text-[var(--ink)]"
-        >
-          <p className="mono-label text-[var(--warn)]">Adjust measure</p>
-          <p className="mt-2">
-            You have a problem on value{" "}
-            <strong>
-              {outlier.label} ({formatMm(outlier.valueMm)} mm)
-            </strong>
-            . Remeasure it again if you want a more accurate result.
-          </p>
-        </div>
-      )}
-
       <div className="flex gap-3">
-        <button
-          type="button"
-          onClick={onBack}
-          className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 text-sm text-[var(--ink)]"
-        >
-          ‹ Back
-        </button>
-        <button
-          type="button"
-          disabled={!canSubmit}
-          onClick={onSubmit}
-          className="gold-fill flex-[1.4] rounded-lg px-4 py-2.5 text-sm font-medium text-[var(--ink)] shadow-[inset_0_1px_0_rgba(255,255,255,0.4)] disabled:opacity-40"
-        >
-          Show me my size ›
-        </button>
+        <button type="button" onClick={onBack} className="btn-secondary flex-1">‹ Back</button>
+        <button type="button" onClick={onSave} disabled={stockedFromCompetitorUs(Number(value)) == null} className="btn-primary flex-[1.4]">Save competitor size</button>
+      </div>
+    </div>
+  );
+}
+
+function ManualCircStep({
+  title,
+  body,
+  value,
+  onChange,
+  onBack,
+  onSave,
+  saveLabel,
+}: {
+  title: string;
+  body: string;
+  value: number | null;
+  onChange: (value: number | null) => void;
+  onBack: () => void;
+  onSave: () => void;
+  saveLabel: string;
+}) {
+  return (
+    <div className="space-y-6">
+      <StepHeading title={title}>{body}</StepHeading>
+      <CircInput label="Circumference" hint="Millimetres" value={value} onChange={onChange} />
+      <div className="flex gap-3">
+        <button type="button" onClick={onBack} className="btn-secondary flex-1">‹ Back</button>
+        <button type="button" onClick={onSave} disabled={!(Number(value) > 0)} className="btn-primary flex-[1.4]">{saveLabel}</button>
+      </div>
+    </div>
+  );
+}
+
+const STRIP_STEPS = [
+  { title: "Cut a strip", text: "Use a thin piece of paper." },
+  { title: "Wrap your finger", text: "Snug is right. Not tight, and not loose." },
+  { title: "Mark the overlap", text: "Put a pen mark where the paper meets, as in the photo." },
+  { title: "Measure that mark", text: "Lay the strip flat and match its length on the next screen." },
+];
+
+function PaperStripGuide({ onReady, onClose }: { onReady: () => void; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-[80] flex items-end justify-center bg-[#243e35]/55 p-3 backdrop-blur-[2px] sm:items-center sm:p-6" role="presentation" onClick={onClose}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="strip-guide-title"
+        className="flex max-h-[min(720px,92dvh)] w-full max-w-lg flex-col overflow-hidden rounded-3xl bg-[var(--surface)] shadow-2xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-4 px-5 pt-5">
+          <div>
+            <p className="mono-label text-[var(--gold-deep)]">Paper strip</p>
+            <h2 id="strip-guide-title" className="mt-1 font-[family-name:var(--font-display)] text-[28px] leading-tight text-[var(--ink)]">
+              Measure your finger
+            </h2>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[var(--border)] text-lg text-[var(--ink)] hover:bg-[var(--surface-2)]">
+            ×
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-auto px-5 pb-2">
+          <img
+            src="/paper-strip-method.png"
+            alt="A paper strip wrapped around a finger, with a pen mark where the ends overlap."
+            className="mt-3 max-h-[280px] w-full rounded-[28px] bg-[var(--surface-2)] object-contain"
+          />
+          <ol className="mt-3 space-y-2.5">
+            {STRIP_STEPS.map((step, index) => (
+              <li key={step.title} className="flex gap-3">
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--ink)] text-xs text-white">{index + 1}</span>
+                <p className="pt-0.5 text-sm leading-relaxed text-[var(--ink)]">
+                  <span className="font-medium">{step.title}.</span>{" "}
+                  <span className="text-[var(--muted)]">{step.text}</span>
+                </p>
+              </li>
+            ))}
+          </ol>
+        </div>
+        <div className="border-t border-[var(--border)] px-5 py-4">
+          <button type="button" onClick={onReady} className={primaryBtn}>Measure my strip</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StepReading({
+  label,
+  mm,
+  picked,
+  continueLabel,
+  onBack,
+  onContinue,
+}: {
+  label: string;
+  mm: number | null;
+  picked?: { entered: number | null; tooLarge: boolean } | null;
+  continueLabel: string;
+  onBack: () => void;
+  onContinue: () => void;
+}) {
+  const stocked = picked?.entered != null ? stockedFromCompetitorUs(picked.entered) : null;
+  const pickedSize = stocked && stocked !== "smaller-finger" ? stocked : null;
+  if (!picked && !(Number(mm) > 0)) return null;
+  const zone = picked ? null : classifyCircumference(mm!);
+  const style = zone ? ZONE_STYLE[zone.color] : ZONE_STYLE.green;
+  return (
+    <div className="space-y-6 text-center">
+      <div className="result-hero space-y-3">
+        <p className="mono-label text-[var(--muted)]">{label}</p>
+        {picked?.tooLarge || stocked === "smaller-finger" ? (
+          <>
+            <p className="font-[family-name:var(--font-display)] text-5xl leading-none text-[var(--ink)]">US {picked?.entered}</p>
+            <p className="text-base leading-relaxed text-[var(--ink)]">Choose another smaller finger.</p>
+          </>
+        ) : (
+          <>
+            <p className="font-[family-name:var(--font-display)] text-6xl leading-none text-[var(--ink)]">US {pickedSize ?? zone?.us}</p>
+            {picked && picked.entered != null && picked.entered !== pickedSize ? (
+              <p className="text-sm text-[var(--muted)]">From US {picked.entered}</p>
+            ) : zone ? (
+              <p className="text-lg tabular-nums text-[var(--ink)]">{formatReading(mm!)} <span className="text-sm text-[var(--muted)]">mm</span></p>
+            ) : null}
+            <p className="flex items-center justify-center gap-2">
+              <span className={`inline-block h-2.5 w-2.5 rounded-full ${style.chip}`} aria-hidden />
+              <span className="text-sm text-[var(--ink)]">{picked ? "Ok" : style.label}</span>
+            </p>
+          </>
+        )}
+      </div>
+      <div className="flex gap-3">
+        <button type="button" onClick={onBack} className="btn-secondary flex-1">‹ Back</button>
+        <button type="button" onClick={onContinue} className="btn-primary flex-[1.4]">{continueLabel}</button>
       </div>
     </div>
   );
@@ -594,12 +842,16 @@ function CircInput({
   bare?: boolean;
   highlight?: boolean;
 }) {
+  const inputId = useId();
   const inner = (
     <>
-      <label className="mono-label text-[var(--muted)]">{label}</label>
-      <p className="mt-1 text-xs text-[var(--muted)]">{hint}</p>
+      <label htmlFor={inputId} className="mono-label text-[var(--muted)]">{label}</label>
+      <p id={`${inputId}-hint`} className="mt-1 text-xs text-[var(--muted)]">{hint}</p>
       <div className="mt-2 flex items-center gap-2">
         <input
+          id={inputId}
+          aria-describedby={`${inputId}-hint`}
+          aria-invalid={highlight || undefined}
           type="number"
           inputMode="decimal"
           min={40}
@@ -612,7 +864,7 @@ function CircInput({
             else onChange(+raw);
           }}
           placeholder="e.g. 57.0"
-          className={`w-full rounded-lg border bg-[var(--surface)] px-3 py-2.5 text-sm text-[var(--ink)] outline-none focus:border-[var(--gold)] ${
+          className={`min-w-0 w-full rounded-lg border bg-[var(--surface)] px-3 py-3 text-lg tabular-nums text-[var(--ink)] outline-none focus:border-[var(--gold)] ${
             highlight ? "border-[var(--warn)]" : "border-[var(--border)]"
           }`}
         />
@@ -635,29 +887,6 @@ function CircInput({
   );
 }
 
-const FIT_COPY: Record<FitLabel, { title: string; message: string }> = {
-  perfect: {
-    title: "Perfect",
-    message: "Your measures agree — this size fits you perfectly.",
-  },
-  tight: {
-    title: "Tight",
-    message: "This size fits, but it may feel a little tight.",
-  },
-  loose: {
-    title: "Loose",
-    message: "This size fits, but it may feel a little loose.",
-  },
-  very_loose: {
-    title: "Very loose",
-    message: "This size is the closest we stock, but it will feel very loose.",
-  },
-  very_tight: {
-    title: "Very tight",
-    message: "This size is the closest we stock, but it will feel very tight.",
-  },
-};
-
 const ZONE_STYLE: Record<
   MeasureClassification["color"],
   { chip: string; label: string }
@@ -667,167 +896,223 @@ const ZONE_STYLE: Record<
   black: { chip: "bg-neutral-900", label: "Tight" },
 };
 
-const EXPERIENCE_FIT: Record<"ok" | "loose" | "tight", string> = {
-  ok: "Ok",
-  loose: "Loose",
-  tight: "Tight",
-};
-
 function ExploreResult({
   verdict,
+  sure,
   classifications,
   measures,
   onRestart,
+  onNextFinger,
   onBack,
+  onConfirm,
 }: {
   verdict: SizeVerdict;
+  sure: boolean;
   classifications: MeasureClassification[] | null;
   measures: ExploreMeasurements;
   onRestart: () => void;
   onBack: () => void;
+  onConfirm: () => void;
+  onNextFinger: () => void;
 }) {
   const byKey = new Map((classifications ?? []).map((c) => [c.key, c]));
-  const usedCount = classifications?.length ?? 0;
+  const lowest = classifications?.length
+    ? Math.min(...classifications.map((c) => c.circMm))
+    : undefined;
+  const guidance =
+    verdict.status === "size"
+      ? fitGuidance(verdict.fit, verdict.us, lowest)
+      : null;
+  const okCount = (classifications ?? []).filter((c) => c.color === "green").length;
+  const readingCount = classifications?.length ?? 0;
+  const measuresAreTight =
+    readingCount > 0 &&
+    (classifications ?? []).every((c) => c.color === "black");
+  const tryAnotherFinger =
+    (verdict.status === "size" &&
+      (verdict.fit === "tight" || verdict.fit === "very_tight" || verdict.fit === "loose" || verdict.fit === "very_loose")) ||
+    (verdict.status === "remeasure" && measuresAreTight);
+  const competitorBlocksSize = Boolean(measures.competitorTooLarge);
+  const nextFinger = nextFingerAdvice(measures.wearPicks, activeFingerIndex(measures));
+  const tightBody = nextFinger?.body ?? "All three selected fingers have been tried. Choose a new set of three fingers to continue.";
+  const tightAction = nextFinger?.action ?? "Choose three new fingers";
   const experiences = [
-    {
-      key: "ring" as const,
-      label: "Ring",
-      value: measures.ringCircMm,
-      skipped: Boolean(measures.ringSkipped),
-    },
-    {
-      key: "finger" as const,
-      label: "Finger",
-      value: measures.fingerCircMm,
-      skipped: false,
-    },
-    {
-      key: "camera" as const,
-      label: "Camera",
-      value: measures.cameraCircMm,
-      skipped: false,
-    },
-  ];
+    { key: "jeweler" as const, label: "Jeweler size", value: measures.jewelerCircMm, skipped: Boolean(measures.jewelerSkipped) },
+    { key: "competitor" as const, label: "Competitor size", value: measures.competitorCircMm, skipped: Boolean(measures.competitorSkipped) },
+    { key: "ring" as const, label: "Ring on screen", value: measures.ringCircMm, skipped: Boolean(measures.ringSkipped) },
+    { key: "finger" as const, label: "Paper strip", value: measures.fingerCircMm, skipped: Boolean(measures.fingerSkipped) },
+  ].filter((exp) => !exp.skipped && (Number(exp.value) > 0 || (exp.key === "competitor" && measures.competitorTooLarge)));
 
   return (
-    <div className="space-y-6">
-      <StepHeading title="Your size result">
-        Each completed measure is checked against the fit zones of our sizes —
-        US 6 · 8 · 10 · 12.
-      </StepHeading>
-
-      <div className="rounded-2xl border border-[var(--border)] bg-[var(--stage)] px-4 py-8 sm:px-6">
-        <p className="mono-label mb-6 text-center text-[var(--gold-light)]">
-          Experience results
-        </p>
-        <div className="grid grid-cols-3 gap-2 sm:gap-4">
-          {experiences.map((exp) => {
-            const cls = byKey.get(exp.key);
-            const skipped = exp.skipped || !cls;
-            return (
-              <div key={exp.key} className="text-center">
-                <p className="mono-label text-[#8c7c66]">{exp.label}</p>
-                {skipped ? (
-                  <>
-                    <p className="mt-3 font-[family-name:var(--font-display)] text-xl text-white/55 sm:text-2xl">
-                      Skipped
-                    </p>
-                    <p className="mt-2 text-xs leading-relaxed text-[#8c7c66]">
-                      No size result
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    <p className="mt-3 font-[family-name:var(--font-display)] text-3xl text-[var(--gold-light)] sm:text-4xl">
-                      US {cls.us}
-                    </p>
-                    <p className="mt-2 font-[family-name:var(--font-display)] text-lg text-white">
-                      {EXPERIENCE_FIT[fitFromColor(cls.color)]}
-                    </p>
-                    <p className="mono mt-2 text-[11px] text-[#8c7c66]">
-                      {formatMm(exp.value ?? cls.circMm)} mm
-                    </p>
-                    <p className="mt-2 flex items-center justify-center gap-1.5">
-                      <span
-                        className={`inline-block h-2.5 w-2.5 rounded-full ${ZONE_STYLE[cls.color].chip}`}
-                        aria-hidden
-                      />
-                      <span className="mono text-[10px] text-[#8c7c66]">
-                        {ZONE_STYLE[cls.color].label}
-                      </span>
-                    </p>
-                  </>
-                )}
-              </div>
-            );
-          })}
+    <div className="space-y-6 text-center">
+      {competitorBlocksSize && (
+        <div className="result-hero space-y-4">
+          <h2 className="font-[family-name:var(--font-display)] text-3xl text-[var(--ink)]">
+            Choose another smaller finger
+          </h2>
+          <p className="mx-auto max-w-sm text-base leading-relaxed text-[var(--ink)]">
+            US {measures.competitorUs} is above the sizes we stock. {tightBody}
+          </p>
         </div>
-      </div>
+      )}
+      {!competitorBlocksSize && verdict.status === "size" && guidance && tryAnotherFinger && (
+        <div className="result-hero space-y-4">
+          <h2 className="font-[family-name:var(--font-display)] text-3xl text-[var(--ink)]">
+            {verdict.fit === "loose" || verdict.fit === "very_loose" ? "This ring may feel loose" : "This ring will feel tight"}
+          </h2>
+          <p className="mx-auto max-w-sm text-base leading-relaxed text-[var(--ink)]">
+            {tightBody}
+          </p>
+        </div>
+      )}
+      {!competitorBlocksSize && verdict.status === "size" && guidance && !tryAnotherFinger && (
+        <div className="result-hero space-y-4">
+          <h2 className="font-[family-name:var(--font-display)] text-2xl text-[var(--ink)]">
+            {sure ? "Your readings agree" : "Your recommended size"}
+          </h2>
+          <p className="mono-label text-[var(--gold-deep)]">US</p>
+          <p className="font-[family-name:var(--font-display)] text-7xl leading-none text-[var(--ink)] sm:text-8xl">
+            {verdict.us}
+          </p>
+          <p className="mx-auto max-w-sm text-base leading-relaxed text-[var(--ink)]">
+            {sure
+              ? `Every reading lands on US ${verdict.us}.`
+              : okCount > readingCount / 2 && okCount < readingCount
+                ? `${okCount} of ${readingCount} readings are OK for US ${verdict.us}.`
+                : guidance.canConfirm
+                  ? guidance.note
+                  : guidance.sentence}
+          </p>
+        </div>
+      )}
+      {!competitorBlocksSize && verdict.status === "remeasure" && tryAnotherFinger && (
+        <>
+          <h2 className="font-[family-name:var(--font-display)] text-3xl text-[var(--ink)]">
+            This ring will feel tight
+          </h2>
+          <p className="mx-auto max-w-sm text-base leading-relaxed text-[var(--ink)]">
+            {tightBody}
+          </p>
+        </>
+      )}
+      {!competitorBlocksSize && verdict.status === "remeasure" && !tryAnotherFinger && experiences.length === 0 && (
+        <>
+          <h2 className="font-[family-name:var(--font-display)] text-3xl text-[var(--ink)]">
+            Add a measurement
+          </h2>
+          <p className="mx-auto max-w-sm text-sm leading-relaxed text-[var(--muted)]">
+            Add at least two readings for this finger to see your size.
+          </p>
+        </>
+      )}
+      {!competitorBlocksSize && verdict.status === "remeasure" && !tryAnotherFinger && experiences.length > 0 && (
+        <>
+          <h2 className="font-[family-name:var(--font-display)] text-3xl text-[var(--ink)]">
+            {readingCount < 2 ? "Add another measurement" : "Measure again"}
+          </h2>
+          <p className="mx-auto max-w-sm text-sm leading-relaxed text-[var(--muted)]">
+            {readingCount < 2
+              ? "We need at least two readings for this finger. Add another method before confirming a size."
+              : "These readings are tied or disagree. Measure this same finger again using at least two methods."}
+          </p>
+        </>
+      )}
+      {!competitorBlocksSize && verdict.status === "unavailable" && (
+        <>
+          <h2 className="font-[family-name:var(--font-display)] text-3xl text-[var(--ink)]">
+            Size unavailable
+          </h2>
+          <p className="mx-auto max-w-sm text-sm leading-relaxed text-[var(--muted)]">
+            Below our smallest size. Available: US 6, 8, 10, 12. {tightBody}
+          </p>
+        </>
+      )}
 
-      <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-6 py-8 text-center">
-        {verdict.status === "size" && (
-          <>
-            <p className="mono-label text-[var(--gold-deep)]">
-              Based on {usedCount} measure{usedCount === 1 ? "" : "s"} we
-              propose
-            </p>
-            <p className="mt-2 font-[family-name:var(--font-display)] text-5xl text-[var(--gold)] sm:text-6xl">
-              US {verdict.us}
-            </p>
-            <p className="mt-3 font-[family-name:var(--font-display)] text-2xl text-[var(--ink)]">
-              {FIT_COPY[verdict.fit].title}
-            </p>
-            <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-[var(--muted)]">
-              {FIT_COPY[verdict.fit].message}
-            </p>
-          </>
-        )}
-        {verdict.status === "remeasure" && (
-          <>
-            <p className="mono-label text-[var(--gold-deep)]">
-              Based on {usedCount} measure{usedCount === 1 ? "" : "s"}
-            </p>
-            <p className="mt-3 font-[family-name:var(--font-display)] text-3xl text-[var(--ink)]">
-              Choose another finger and remeasure
-            </p>
-            <p className="mx-auto mt-3 max-w-sm text-sm leading-relaxed text-[var(--muted)]">
-              Your values don&apos;t point to a good fit. Please choose another
-              finger and remeasure — thank you.
-            </p>
-          </>
-        )}
-        {verdict.status === "unavailable" && (
-          <>
-            <p className="mono-label text-[var(--gold-deep)]">
-              Based on {usedCount} measure{usedCount === 1 ? "" : "s"}
-            </p>
-            <p className="mt-3 font-[family-name:var(--font-display)] text-3xl text-[var(--ink)]">
-              Your size is not available
-            </p>
-            <p className="mx-auto mt-3 max-w-sm text-sm leading-relaxed text-[var(--muted)]">
-              Your measures are below our smallest size. Available sizes are US
-              6 · 8 · 10 · 12 only.
-            </p>
-          </>
-        )}
-      </div>
+      {competitorBlocksSize ? (
+        <button type="button" onClick={onNextFinger} className={primaryBtn}>
+          {tightAction}
+        </button>
+      ) : guidance?.canConfirm ? (
+        <button type="button" onClick={onConfirm} className={primaryBtn}>
+          Confirm my size
+        </button>
+      ) : (
+        <button type="button" onClick={tryAnotherFinger || verdict.status === "unavailable" ? onNextFinger : onRestart} className={primaryBtn}>
+          {tryAnotherFinger || verdict.status === "unavailable" ? tightAction : "Measure again"}
+        </button>
+      )}
 
-      <div className="flex gap-3">
-        <button
-          type="button"
-          onClick={onBack}
-          className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 text-sm"
-        >
-          ‹ Adjust inputs
-        </button>
-        <button
-          type="button"
-          onClick={onRestart}
-          className="gold-fill flex-1 rounded-lg px-4 py-2.5 text-sm font-medium text-[var(--ink)] shadow-[inset_0_1px_0_rgba(255,255,255,0.4)]"
-        >
-          Start over
-        </button>
+      <button
+        type="button"
+        onClick={onBack}
+        className="text-sm text-[var(--muted)] underline-offset-4 hover:underline"
+      >
+        Adjust measurements
+      </button>
+
+      <div className="grid grid-cols-2 gap-2 text-left sm:gap-3">
+        {experiences.map((exp) => {
+          const cls = byKey.get(exp.key);
+          return (
+            <div
+              key={exp.key}
+              className="rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] px-3 py-4 text-center"
+            >
+              <p className="mono-label text-[var(--muted)]">{exp.label}</p>
+              {exp.key === "competitor" && measures.competitorTooLarge ? (
+                <>
+                  <p className="mt-2 font-[family-name:var(--font-display)] text-2xl text-[var(--ink)]">US {measures.competitorUs}</p>
+                  <p className="mt-2 text-xs leading-relaxed text-[var(--ink)]">Choose another smaller finger</p>
+                </>
+              ) : exp.key === "competitor" && cls ? (
+                <>
+                  <p className="mt-2 font-[family-name:var(--font-display)] text-2xl text-[var(--ink)]">US {cls.us}</p>
+                  {measures.competitorUs != null && measures.competitorUs !== cls.us ? (
+                    <p className="mono mt-1 text-[11px] text-[var(--muted)]">From US {measures.competitorUs}</p>
+                  ) : null}
+                  <p className="mt-2 flex items-center justify-center gap-1.5">
+                    <span className={`inline-block h-2.5 w-2.5 rounded-full ${ZONE_STYLE.green.chip}`} aria-hidden />
+                    <span className="mono text-[10px] text-[var(--muted)]">Ok</span>
+                  </p>
+                </>
+              ) : cls ? (
+                <>
+                  <p className="mt-2 font-[family-name:var(--font-display)] text-2xl text-[var(--ink)]">US {cls.us}</p>
+                  <p className="mono mt-1 text-[11px] text-[var(--muted)]">{formatReading(exp.value ?? cls.circMm)} mm</p>
+                  <p className="mt-2 flex items-center justify-center gap-1.5">
+                    <span className={`inline-block h-2.5 w-2.5 rounded-full ${ZONE_STYLE[cls.color].chip}`} aria-hidden />
+                    <span className="mono text-[10px] text-[var(--muted)]">{ZONE_STYLE[cls.color].label}</span>
+                  </p>
+                </>
+              ) : (
+                <p className="mt-3 text-sm text-[var(--muted)]">{formatReading(exp.value ?? 0)} mm</p>
+              )}
+            </div>
+          );
+        })}
       </div>
+    </div>
+  );
+}
+
+function ConfirmFit({
+  us,
+  onRestart,
+}: {
+  us: number;
+  onRestart: () => void;
+}) {
+  return (
+    <div className="space-y-6 text-center">
+      <div className="result-icon"><UiIcon name="check" className="h-6 w-6" /></div>
+      <h2 className="step-heading">Your fit, confirmed.</h2>
+      <p className="mono-label text-[var(--gold-deep)]">US</p>
+      <p className="font-[family-name:var(--font-display)] text-7xl leading-none text-[var(--ink)] sm:text-8xl">
+        {us}
+      </p>
+      <button type="button" onClick={onRestart} className={primaryBtn}>
+        Measure again
+      </button>
     </div>
   );
 }

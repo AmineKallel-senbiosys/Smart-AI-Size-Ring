@@ -1,6 +1,7 @@
 "use client";
 
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
+import { useEffect, useRef } from "react";
 
 const STEPS = ["Start", "Calibrate", "Measure", "Result"] as const;
 
@@ -10,57 +11,18 @@ type Props = {
 };
 
 export function WizardProgress({ stepIndex, onStepClick }: Props) {
-  return (
-    <ol className="flex items-center gap-1.5">
-      {STEPS.map((label, i) => {
-        const active = i === stepIndex;
-        const done = i < stepIndex;
-        const clickable = done && !!onStepClick;
+  return <ProgressSteps labels={STEPS} stepIndex={stepIndex} onStepClick={onStepClick} />;
+}
 
-        return (
-          <li key={label} className="flex min-w-0 flex-1 items-center gap-1.5">
-            <button
-              type="button"
-              disabled={!clickable}
-              onClick={() => clickable && onStepClick(i)}
-              className={`flex min-w-0 items-center gap-1.5 ${
-                clickable ? "cursor-pointer" : "cursor-default"
-              }`}
-            >
-              <span
-                className={`mono flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full text-[10px] leading-none ${
-                  active
-                    ? "bg-[var(--ink)] text-[var(--bg)]"
-                    : done
-                      ? "gold-fill text-[var(--ink)]"
-                      : "bg-[var(--surface-2)] text-[var(--muted)]"
-                }`}
-              >
-                {done ? "✓" : i + 1}
-              </span>
-              <span
-                className={`mono-label truncate ${
-                  active
-                    ? "text-[var(--ink)]"
-                    : done
-                      ? "text-[var(--gold-deep)]"
-                      : "text-[var(--muted)]"
-                }`}
-              >
-                {label}
-              </span>
-            </button>
-            {i < STEPS.length - 1 && (
-              <span
-                className="h-px min-w-2 flex-1 bg-[var(--border)]"
-                aria-hidden
-              />
-            )}
-          </li>
-        );
-      })}
-    </ol>
-  );
+export function ProgressSteps({ labels, stepIndex, onStepClick }: { labels: readonly string[]; stepIndex: number; onStepClick?: (index: number) => void }) {
+  return <ol className="step-progress" aria-label="Sizing progress">
+    {labels.map((label, i) => {
+      const content = <><span aria-hidden>{i < stepIndex ? "✓" : i + 1}</span><span>{label}</span></>;
+      return <li key={label} aria-current={i === stepIndex ? "step" : undefined}>
+        {onStepClick && i < stepIndex ? <button type="button" className="step-progress-item" data-done="true" onClick={() => onStepClick(i)} aria-label={"Return to " + label}>{content}</button> : <span className="step-progress-item" data-active={i === stepIndex} data-done={i < stepIndex}>{content}</span>}
+      </li>;
+    })}
+  </ol>;
 }
 
 export function StepFade({
@@ -70,13 +32,29 @@ export function StepFade({
   children: React.ReactNode;
   stepKey: string;
 }) {
+  const reducedMotion = useReducedMotion();
+  const containerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const heading = container.querySelector<HTMLElement>("h2");
+    if (heading) {
+      heading.tabIndex = -1;
+      heading.focus({ preventScroll: true });
+    }
+    const card = container.closest(".wizard-card");
+    if (card && card.getBoundingClientRect().top < 110) {
+      card.scrollIntoView({ block: "start", behavior: reducedMotion ? "instant" : "smooth" });
+    }
+  }, [stepKey, reducedMotion]);
   return (
     <motion.div
+      ref={containerRef}
       key={stepKey}
-      initial={{ opacity: 0, y: 10 }}
+      initial={{ opacity: 0, y: reducedMotion ? 0 : 10 }}
       animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -8 }}
-      transition={{ duration: 0.26, ease: [0.22, 1, 0.36, 1] }}
+      exit={{ opacity: 0, y: reducedMotion ? 0 : -8 }}
+      transition={{ duration: reducedMotion ? 0 : 0.2, ease: [0.22, 1, 0.36, 1] }}
     >
       {children}
     </motion.div>
@@ -107,7 +85,7 @@ export function Stage({
       } ${className}`}
     >
       {caption && (
-        <p className="mono-label px-4 pt-3 text-center text-[#8c7c66]">
+        <p className="mono-label px-4 pt-3 text-center text-white/55">
           {caption}
         </p>
       )}
@@ -121,11 +99,11 @@ export function Stage({
           {crosshair && (
             <>
               <span
-                className="pointer-events-none absolute inset-x-0 top-1/2 h-px bg-[#8c7c66]/30"
+                className="pointer-events-none absolute inset-x-0 top-1/2 h-px bg-white/25"
                 aria-hidden
               />
               <span
-                className="pointer-events-none absolute inset-y-0 left-1/2 w-px bg-[#8c7c66]/30"
+                className="pointer-events-none absolute inset-y-0 left-1/2 w-px bg-white/25"
                 aria-hidden
               />
             </>
@@ -150,7 +128,7 @@ export function StepHeading({
 }) {
   return (
     <div>
-      <h2 className="font-[family-name:var(--font-display)] text-[22px] leading-snug text-[var(--ink)]">
+      <h2 className="step-heading">
         {title}
       </h2>
       {children && (
@@ -201,18 +179,18 @@ export function StepNav({
   backLabel?: string;
 }) {
   return (
-    <div className="flex gap-3">
+    <div className="step-actions">
       <button
         type="button"
         onClick={onBack}
-        className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 text-sm text-[var(--ink)] transition-colors hover:bg-[var(--surface-2)]"
+        className="btn-secondary"
       >
         ‹ {backLabel}
       </button>
       <button
         type="button"
         onClick={onNext}
-        className="gold-fill flex-1 rounded-lg px-4 py-2.5 text-sm font-medium text-[var(--ink)] shadow-[inset_0_1px_0_rgba(255,255,255,0.4)] transition-[filter] hover:brightness-[1.04]"
+        className="btn-primary"
       >
         {nextLabel} ›
       </button>
@@ -234,7 +212,7 @@ export function StepperButton({
       type="button"
       onClick={onClick}
       aria-label={label}
-      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface)] text-base text-[var(--ink)] transition-colors hover:bg-[var(--surface-2)]"
+      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--surface-2)] text-xl text-[var(--ink)] transition-colors hover:bg-[#ebebeb]"
     >
       {children}
     </button>

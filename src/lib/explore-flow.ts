@@ -1,4 +1,6 @@
 export const AVAILABLE_US_SIZES = [6, 8, 10, 12] as const;
+/** Whole US sizes a competitor brand may report. */
+export const COMPETITOR_US_SIZES = [5, 6, 7, 8, 9, 10, 11, 12, 13, 14] as const;
 export type AvailableUsSize = (typeof AVAILABLE_US_SIZES)[number];
 
 /** Fit colour for one measured circumference (from "Cut off values" sheet). */
@@ -65,7 +67,7 @@ export type FitLabel =
   | "very_loose"
   | "very_tight";
 
-export type MeasureKey = "ring" | "finger" | "camera";
+export type MeasureKey = "ring" | "finger" | "jeweler" | "competitor";
 
 export type SizeVerdict =
   | { status: "size"; us: AvailableUsSize; fit: FitLabel }
@@ -82,77 +84,155 @@ export type MeasureClassification = CircClassification & {
   circMm: number;
 };
 
-/**
- * Decision tree on the colours (OK = green). Works with 2 or 3 measures
- * (ring can be skipped):
- *
- *   all green                 → size, perfect
- *   all-but-1 green + 1 black → size, tight
- *   all-but-1 green + 1 red   → size, loose
- *   1 green + 2+ red          → size, very loose
- *   1 green + 2+ black        → size, very tight
- *   all black                 → choose another finger and remeasure
- *
- * Extensions:
- *   all red            → size, very loose
- *   any other mix      → remeasure
- *   all below chart    → size unavailable
- */
+export type MeasurementAction = "recommend" | "remeasure" | "another-finger";
+
+/** Order-independent votes for 2–4 readings on the same finger and US size. */
+export function measurementAction(ok: number, loose: number, anotherFinger: number): MeasurementAction {
+  const n = ok + loose + anotherFinger;
+  if (n < 2 || n > 4) return "remeasure";
+  if (ok > n / 2) return "recommend";
+  // Opposing loose and tight readings need verification before changing fingers.
+  if (loose > 0 && anotherFinger > 0) return "remeasure";
+  if (anotherFinger > n / 2) return "another-finger";
+  if (loose > n / 2) return "another-finger";
+  return "remeasure";
+}
+
+/** A strict majority decides; ties and different US sizes require remeasurement. */
 export function decideSize(inputs: LabeledCirc[]): {
   verdict: SizeVerdict;
   classifications: MeasureClassification[];
 } {
-  const classifications: MeasureClassification[] = inputs.map((i) => ({
-    key: i.key,
-    circMm: i.circMm,
+  const valid = inputs.every((i) => Number.isFinite(i.circMm) && i.circMm > 0);
+  const classifications = inputs.filter((i) => Number.isFinite(i.circMm) && i.circMm > 0).map((i) => ({
+    ...i,
     ...classifyCircumference(i.circMm),
   }));
-
-  const n = classifications.length;
-  if (n === 0) {
-    return { verdict: { status: "unavailable" }, classifications };
+  if (!valid || inputs.length < 2 || inputs.length > 4 || new Set(inputs.map((i) => i.key)).size !== inputs.length) {
+    return { verdict: { status: "remeasure" }, classifications };
   }
   if (classifications.every((c) => c.belowChart)) {
     return { verdict: { status: "unavailable" }, classifications };
   }
-
-  const greens = classifications.filter((c) => c.color === "green").length;
-  const reds = classifications.filter((c) => c.color === "red").length;
-  const blacks = classifications.filter((c) => c.color === "black").length;
-  const us = pickSize(classifications);
-
-  if (blacks === n) {
+  if (classifications.some((c) => c.belowChart) || new Set(classifications.map((c) => c.us)).size !== 1) {
     return { verdict: { status: "remeasure" }, classifications };
   }
-  if (greens === n) {
-    return { verdict: { status: "size", us, fit: "perfect" }, classifications };
-  }
-  if (greens === n - 1 && blacks === 1) {
-    return { verdict: { status: "size", us, fit: "tight" }, classifications };
-  }
-  if (greens === n - 1 && reds === 1) {
-    return { verdict: { status: "size", us, fit: "loose" }, classifications };
-  }
-  if (greens === 1 && reds >= 2) {
-    return {
-      verdict: { status: "size", us, fit: "very_loose" },
-      classifications,
-    };
-  }
-  if (greens === 1 && blacks >= 2) {
-    return {
-      verdict: { status: "size", us, fit: "very_tight" },
-      classifications,
-    };
-  }
-  if (reds === n) {
-    return {
-      verdict: { status: "size", us, fit: "very_loose" },
-      classifications,
-    };
-  }
-
+  const ok = classifications.filter((c) => c.color === "green").length;
+  const loose = classifications.filter((c) => c.color === "red").length;
+  const another = classifications.filter((c) => c.color === "black").length;
+  const action = measurementAction(ok, loose, another);
+  const us = classifications[0].us;
+  if (action === "recommend") return { verdict: { status: "size", us, fit: "perfect" }, classifications };
+  if (action === "another-finger") return { verdict: { status: "size", us, fit: loose > another ? "very_loose" : "very_tight" }, classifications };
   return { verdict: { status: "remeasure" }, classifications };
+}
+
+/** Agreement describes the readings; it is not a guarantee of physical fit. */
+export function consensusSize(inputs: LabeledCirc[]): {
+  verdict: SizeVerdict;
+  classifications: MeasureClassification[];
+  sure: boolean;
+} {
+  const decided = decideSize(inputs);
+  return {
+    ...decided,
+    sure: decided.verdict.status === "size" && decided.verdict.fit === "perfect" &&
+      decided.classifications.every((c) => c.color === "green"),
+  };
+}
+
+/**
+ * Map a competitor's US size onto a stocked size.
+ * 5 and 6 → 6, 7 and 8 → 8, 9 and 10 → 10, 11 and 12 → 12.
+ * Above 12 does not map: that finger needs a smaller size.
+ */
+export function stockedFromCompetitorUs(us: number): AvailableUsSize | "smaller-finger" | null {
+  if (!COMPETITOR_US_SIZES.some((size) => size === us)) return null;
+  if (us > 12) return "smaller-finger";
+  return AVAILABLE_US_SIZES.find((size) => size >= us) ?? "smaller-finger";
+}
+
+/** Tested fit band for one stocked size, in millimetres of circumference. */
+export function fitBandFor(us: AvailableUsSize): {
+  /** Below this, the size is outside the loose zone and can slip off. */
+  secureMinMm: number;
+  /** Start of the expected-fit zone. */
+  comfortableFromMm: number;
+  /** Stocked reference circumference. */
+  referenceMm: number;
+} {
+  const row = CUT_OFFS.find((c) => c.us === us)!;
+  return {
+    secureMinMm: row.redStart,
+    comfortableFromMm: row.greenStart,
+    referenceMm: row.sizeCirc,
+  };
+}
+
+export function formatLimitMm(mm: number): string {
+  return Number(mm.toFixed(3)).toString();
+}
+
+export type FitGuidance = {
+  /** One sentence under the recommended size. */
+  sentence: string;
+  /** Shown when the customer confirms an expected fit. */
+  note: string;
+  /** Only an expected fit can be confirmed. Looser or tighter moves to the next finger. */
+  canConfirm: boolean;
+};
+
+/**
+ * Customer copy for a size verdict.
+ * `lowestMm` is the smallest measured circumference, used so a loose result
+ * states the slip-off floor from the tested band.
+ */
+export function fitGuidance(
+  fit: FitLabel,
+  us: AvailableUsSize,
+  lowestMm?: number
+): FitGuidance {
+  const floor = formatLimitMm(fitBandFor(us).secureMinMm);
+  const belowFloor =
+    lowestMm != null && Number.isFinite(lowestMm) && lowestMm < fitBandFor(us).secureMinMm;
+  const fitNote =
+    "A gentle fit is okay. Your ring should stay secure and feel comfortable.";
+  const floorNote = `A gentle fit is okay down to ${floor} mm. Below that, this size can slip off.`;
+
+  switch (fit) {
+    case "perfect":
+      return {
+        sentence: "This is the expected fit.",
+        note: fitNote,
+        canConfirm: true,
+      };
+    case "loose":
+      return {
+        sentence: floorNote,
+        note: `Measure the next selected finger. Under ${floor} mm, this size can slip off.`,
+        canConfirm: false,
+      };
+    case "tight":
+      return {
+        sentence: "This ring will feel tight. Measure another finger.",
+        note: "This ring will feel tight. Measure another finger.",
+        canConfirm: false,
+      };
+    case "very_loose":
+      return {
+        sentence: belowFloor
+          ? `This measurement is below ${floor} mm, so US ${us} can slip off. We won't confirm it.`
+          : `These measures lean too loose to confirm. This size stays secure only down to ${floor} mm.`,
+        note: floorNote,
+        canConfirm: false,
+      };
+    case "very_tight":
+      return {
+        sentence: "This ring will feel tight. Measure another finger.",
+        note: "This ring will feel tight. Measure another finger.",
+        canConfirm: false,
+      };
+  }
 }
 
 /** Per-measure fit from its colour zone (not the combined decision tree). */
@@ -160,24 +240,6 @@ export function fitFromColor(color: FitColor): "ok" | "loose" | "tight" {
   if (color === "green") return "ok";
   if (color === "red") return "loose";
   return "tight";
-}
-
-/** Majority size across the three values; green votes weigh more. */
-function pickSize(classifications: CircClassification[]): AvailableUsSize {
-  const weights = new Map<AvailableUsSize, number>();
-  for (const c of classifications) {
-    const w = c.color === "green" ? 1.5 : 1;
-    weights.set(c.us, (weights.get(c.us) ?? 0) + w);
-  }
-  let best: AvailableUsSize = classifications[0].us;
-  let bestW = 0;
-  for (const [us, w] of weights) {
-    if (w > bestW) {
-      best = us;
-      bestW = w;
-    }
-  }
-  return best;
 }
 
 export function averageCircumference(values: number[]): number {
@@ -196,9 +258,10 @@ export type CircumferenceOutlier = {
 };
 
 const MEASURE_LABELS: Record<MeasureKey, string> = {
-  ring: "Using a ring",
-  finger: "Measure finger",
-  camera: "Camera",
+  ring: "Ring on screen",
+  finger: "Paper strip",
+  jeweler: "Jeweler size",
+  competitor: "Competitor size",
 };
 
 /**
@@ -208,21 +271,15 @@ const MEASURE_LABELS: Record<MeasureKey, string> = {
  * avg closer to min (max is ≥2% of avg farther than min) → max is the problem
  */
 export function findCircumferenceOutlier(
-  measures: {
-    ring?: number | null;
-    finger: number;
-    camera: number;
-  },
+  measures: Partial<Record<MeasureKey, number | null>>,
   thresholdPct = 0.02
 ): CircumferenceOutlier | null {
-  const entries: { key: MeasureKey; value: number }[] = [
-    { key: "finger", value: measures.finger },
-    { key: "camera", value: measures.camera },
-  ];
-  if (Number.isFinite(measures.ring) && Number(measures.ring) > 0) {
-    entries.unshift({ key: "ring", value: Number(measures.ring) });
-  }
-  if (entries.some((e) => !Number.isFinite(e.value) || e.value <= 0)) return null;
+  const entries: { key: MeasureKey; value: number }[] = (
+    Object.keys(MEASURE_LABELS) as MeasureKey[]
+  )
+    .map((key) => ({ key, value: Number(measures[key]) }))
+    .filter((entry) => Number.isFinite(entry.value) && entry.value > 0);
+  if (entries.length < 2) return null;
 
   const values = entries.map((e) => e.value);
   const min = Math.min(...values);
@@ -264,19 +321,47 @@ export function findCircumferenceOutlier(
 }
 
 
+export type WearHand = "left" | "right";
+
+export type WearFinger = "thumb" | "index" | "middle" | "ring" | "pinky";
+
+export type FingerPick = { hand: WearHand; finger: WearFinger };
+
+const WEAR_FINGERS: readonly WearFinger[] = ["thumb", "index", "middle", "ring", "pinky"];
+
 export type ExploreMeasurements = {
   ringCircMm: number | null;
   fingerCircMm: number | null;
-  cameraCircMm: number | null;
-  /** True when the user skipped the ring step (no ring available) */
+  jewelerCircMm: number | null;
+  competitorCircMm: number | null;
+  /** Primary, second, and third finger. Each pick names a hand and a finger. */
+  wearPicks?: FingerPick[] | null;
+  /** Index of the selected finger currently being measured (0, 1, or 2). */
+  activeFingerIndex?: number;
+  /** US size the competitor gave, from 5 to 14. */
+  competitorUs?: number | null;
+  /** True when the competitor size is above US 12. */
+  competitorTooLarge?: boolean;
+  /** True when the user skipped that step. */
   ringSkipped?: boolean;
+  fingerSkipped?: boolean;
+  jewelerSkipped?: boolean;
+  competitorSkipped?: boolean;
 };
 
 const EMPTY_MEASUREMENTS: ExploreMeasurements = {
   ringCircMm: null,
   fingerCircMm: null,
-  cameraCircMm: null,
+  jewelerCircMm: null,
+  competitorCircMm: null,
+  wearPicks: null,
+  activeFingerIndex: 0,
+  competitorUs: null,
+  competitorTooLarge: false,
   ringSkipped: false,
+  fingerSkipped: false,
+  jewelerSkipped: false,
+  competitorSkipped: false,
 };
 
 const EXPLORE_KEY = "airing.exploreMeasurements";
@@ -302,4 +387,18 @@ export function saveExploreMeasurements(data: ExploreMeasurements): void {
 export function clearExploreMeasurements(): void {
   if (typeof window === "undefined") return;
   sessionStorage.removeItem(EXPLORE_KEY);
+}
+
+/** Require three different hand-and-finger choices. The same finger on the other hand counts as its own choice. */
+export function validFingerPlan(picks: readonly FingerPick[] | null | undefined): boolean {
+  if (!picks || picks.length !== 3) return false;
+  const keys = picks.map((pick) => `${pick.hand}:${pick.finger}`);
+  return new Set(keys).size === 3 && picks.every((pick) =>
+    (pick.hand === "left" || pick.hand === "right") && WEAR_FINGERS.includes(pick.finger),
+  );
+}
+
+export function activeFingerIndex(measures: ExploreMeasurements): number {
+  const index = measures.activeFingerIndex ?? 0;
+  return Number.isInteger(index) && index >= 0 && index <= 2 ? index : 0;
 }

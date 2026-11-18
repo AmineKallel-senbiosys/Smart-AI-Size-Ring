@@ -42,8 +42,10 @@ import {
 } from "@/lib/detect";
 import { useCamera } from "@/hooks/useCamera";
 import { CARD_GUIDE } from "@/lib/card-roi";
-import { detectionIntervals, isMobileDevice } from "@/lib/mobile";
+import { detectionIntervals, isIOS, isMobileDevice } from "@/lib/mobile";
 import { installMediaPipeConsoleFilter } from "@/lib/suppress-mediapipe-console";
+import { ProgressSteps } from "@/components/sizer/WizardShell";
+import { UiIcon } from "@/components/UiIcon";
 
 installMediaPipeConsoleFilter();
 
@@ -54,7 +56,7 @@ const MIN_DIAM_MM = 12;
 const MAX_DIAM_MM = 24;
 const DEFAULT_DIAM_MM = 17.3;
 const MIN_PHOTO_ZOOM = 1;
-const MAX_PHOTO_ZOOM = 4;
+const MAX_PHOTO_ZOOM = 10;
 /** Finger circle size on photo (% of frame width) — adjust step UI */
 const FINGER_CIRCLE_MIN_PCT = 3;
 const FINGER_CIRCLE_MAX_PCT = 24;
@@ -62,6 +64,7 @@ const FINGER_CIRCLE_STEP = 0.02;
 const FINGER_CIRCLE_NUDGE = 0.05;
 
 export function CameraScan() {
+  const [copyNote, setCopyNote] = useState("");
   const { videoRef, status, error, start, stop, capture } = useCamera();
   const [step, setStep] = useState<Step>("intro");
   const [prepSlide, setPrepSlide] = useState(0);
@@ -79,6 +82,11 @@ export function CameraScan() {
   /** Stage-% pan of the photo under the fixed-center circle (align step). */
   const [photoPan, setPhotoPan] = useState({ x: 0, y: 0 });
   const [photoAspect, setPhotoAspect] = useState(3 / 4);
+  /** Captured frame size in pixels (for on-photo measurements). */
+  const [capturePixels, setCapturePixels] = useState({ w: 0, h: 0 });
+  const [detectedFingerWidthPx, setDetectedFingerWidthPx] = useState<
+    number | null
+  >(null);
   const [portalMounted, setPortalMounted] = useState(false);
 
   // Capture-quality checks (advisory — the shutter always stays available)
@@ -225,13 +233,18 @@ export function CameraScan() {
 
   const applyPanAndSyncCircle = useCallback(
     (nextPan: { x: number; y: number }, zoom = photoZoomRef.current) => {
-      const baseMaxX =
-        stageW > 0 ? (photoFrame.ox / stageW) * 100 : 0;
-      const baseMaxY =
-        stageH > 0 ? (photoFrame.oy / stageH) * 100 : 0;
-      const extra = Math.max(0, zoom - 1) * 42;
-      const maxX = baseMaxX + extra;
-      const maxY = baseMaxY + extra;
+      const scaledW = photoFrame.dw * zoom;
+      const scaledH = photoFrame.dh * zoom;
+      const maxX =
+        stageW > 0
+          ? Math.max(0, ((scaledW - stageW) / 2 / stageW) * 100) +
+            (photoFrame.ox / stageW) * 100
+          : 0;
+      const maxY =
+        stageH > 0
+          ? Math.max(0, ((scaledH - stageH) / 2 / stageH) * 100) +
+            (photoFrame.oy / stageH) * 100
+          : 0;
       const pan = {
         x: clamp(nextPan.x, -maxX, maxX),
         y: clamp(nextPan.y, -maxY, maxY),
@@ -623,6 +636,7 @@ export function CameraScan() {
                 dPct: finger.sizePct,
                 landmarkIndex: rawFinger!.landmarkIndex,
                 confidence: rawFinger!.confidence,
+                widthPx: rawFinger!.widthPx,
               }
             : null
         );
@@ -699,6 +713,38 @@ export function CameraScan() {
     [circumferenceMm]
   );
 
+  const measurePixels = useMemo(() => {
+    const photoWidthPx = capturePixels.w > 0 ? capturePixels.w : photoFrame.dw;
+    const photoHeightPx =
+      capturePixels.h > 0 ? capturePixels.h : photoFrame.dh;
+    const photoTotalPx = photoWidthPx * photoHeightPx;
+    const cardWidthPx = Math.round((card.w / 100) * photoWidthPx);
+    const circleDiameterPx = Math.round((circle.d / 100) * photoWidthPx);
+    const cardHeightPx = Math.round(
+      cardWidthPx * (CARD_HEIGHT_MM / CARD_WIDTH_MM)
+    );
+    const fingerWidthPx = Math.round(
+      detectedFingerWidthPx ?? circleDiameterPx
+    );
+    return {
+      photoWidthPx,
+      photoHeightPx,
+      photoTotalPx,
+      cardWidthPx,
+      cardHeightPx,
+      fingerWidthPx,
+      circleDiameterPx,
+    };
+  }, [
+    capturePixels.w,
+    capturePixels.h,
+    photoFrame.dw,
+    photoFrame.dh,
+    card.w,
+    circle.d,
+    detectedFingerWidthPx,
+  ]);
+
   const openCamera = useCallback(() => {
     setLiveCard(null);
     setLiveFinger(null);
@@ -747,14 +793,17 @@ export function CameraScan() {
   }, [prepSlide, openCamera]);
 
   const takePhoto = async () => {
-    const video = videoRef.current;
-    const data = capture();
-    if (!data) return;
-
-    // Stage will letterbox the photo at this exact aspect so photo % == stage %
-    if (video?.videoWidth && video.videoHeight) {
-      setPhotoAspect(video.videoWidth / video.videoHeight);
+    if (isIOS()) {
+      setAiStatus("Opening full-resolution camera…");
     }
+    const shot = await capture();
+    if (!shot) return;
+
+    const { dataUrl: data, width: photoW, height: photoH } = shot;
+
+    // Stage letterboxes the saved JPEG — photo % == stage %
+    setPhotoAspect(photoW / photoH);
+    setCapturePixels({ w: photoW, h: photoH });
 
     setAiStatus("Measuring photo…");
     // Free camera memory BEFORE heavy OWL inference (critical on iPhone).
@@ -792,12 +841,14 @@ export function CameraScan() {
     }
 
     if (fingerSeed) {
+      setDetectedFingerWidthPx(Math.round(fingerSeed.widthPx));
       setCircle({
         x: fingerSeed.xPct,
         y: fingerSeed.yPct,
         d: clamp(fingerSeed.dPct, FINGER_CIRCLE_MIN_PCT, FINGER_CIRCLE_MAX_PCT),
       });
     } else {
+      setDetectedFingerWidthPx(null);
       const baseW = cardSeed?.wPct ?? 42;
       const dPct = baseW * (DEFAULT_DIAM_MM / CARD_WIDTH_MM);
       setCircle({ x: 32, y: 58, d: clamp(dPct, 6, 16) });
@@ -822,8 +873,13 @@ export function CameraScan() {
   );
 
   // 3-2-1 countdown so the user holds the phone still before capture.
+  // iOS opens the system camera for full-resolution stills (must run on tap).
   const startCountdown = () => {
     if (countdownRef.current || status !== "live") return;
+    if (isIOS()) {
+      void takePhoto();
+      return;
+    }
     let n = 3;
     setCountdown(n);
     countdownRef.current = setInterval(() => {
@@ -872,6 +928,8 @@ export function CameraScan() {
     setLiveFinger(null);
     setCard({ x: 68, y: 58, w: 42 });
     setCircle({ x: 32, y: 58, d: 14 });
+    setCapturePixels({ w: 0, h: 0 });
+    setDetectedFingerWidthPx(null);
     setPrepSlide(0);
     setStep("intro");
   };
@@ -889,7 +947,9 @@ export function CameraScan() {
   const captureHint =
     status !== "live"
       ? aiStatus
-      : envLum != null && !lightOk
+      : isIOS()
+        ? "Tap capture — iPhone opens the system camera for full resolution"
+        : envLum != null && !lightOk
         ? envLum < 70
           ? "Too dark — add more light"
           : "Too bright — reduce glare"
@@ -1053,7 +1113,9 @@ export function CameraScan() {
                     {countdown != null
                       ? "HOLD STILL…"
                         : allChecksOk
-                        ? "READY — TAP TO CAPTURE"
+                        ? isIOS()
+                          ? "READY — TAP FOR HI-RES CAMERA"
+                          : "READY — TAP TO CAPTURE"
                         : !fingerOk
                           ? "SHOW RING FINGER · DRAG CARD BOX"
                           : "COMPLETE CHECKS TO CAPTURE"}
@@ -1207,6 +1269,7 @@ export function CameraScan() {
                       <CameraMeasureCard
                         circumferenceMm={circumferenceMm}
                         classification={sizeClassification}
+                        pixels={measurePixels}
                       />
                       <button
                         type="button"
@@ -1215,6 +1278,9 @@ export function CameraScan() {
                       >
                         Adjust finger
                       </button>
+                      <button type="button" onClick={finish} className="gold-fill mt-2 w-full rounded-xl py-3.5 text-sm font-medium text-[var(--ink)]">
+                        Save measurement
+                      </button>
                     </>
                   ) : (
                     <>
@@ -1222,6 +1288,7 @@ export function CameraScan() {
                         circleD={circle.d}
                         circumferenceMm={circumferenceMm}
                         classification={sizeClassification}
+                        pixels={measurePixels}
                         cardW={card.w}
                         onCircleD={(d) =>
                           setCircle((c) => ({
@@ -1256,11 +1323,7 @@ export function CameraScan() {
     <>
       {fullscreenPortal}
       <div
-        className={`mx-auto flex w-full max-w-lg flex-col px-4 ${
-          step === "prep"
-            ? "h-[calc(100dvh-3.5rem)] overflow-hidden py-3"
-            : "min-h-[calc(100dvh-3.5rem)] py-4 sm:py-6"
-        } ${isFullscreen ? "invisible h-0 overflow-hidden p-0" : ""}`}
+        className={`wizard-card flex w-full flex-col ${isFullscreen ? "invisible h-0 overflow-hidden p-0" : ""}`}
       >
       {step !== "prep" && <StepDots step={step} />}
 
@@ -1268,27 +1331,21 @@ export function CameraScan() {
       <AnimatePresence mode="wait">
         {step === "intro" && (
           <Panel key="intro">
-            <Badge>AI camera · Card scale</Badge>
-            <h1 className="mt-4 font-[family-name:var(--font-display)] text-3xl font-bold leading-tight tracking-tight text-[var(--ink)]">
-              Hand left. Card right.
-              <span className="mt-1 block text-[var(--gold-deep)]">
-                AI finds both live.
-              </span>
-            </h1>
+            <Badge>MEASURE WITH YOUR PHONE</Badge>
+            <h2 className="step-heading mt-4">Your fit, in focus.</h2>
             <p className="mt-3 text-[15px] leading-relaxed text-[var(--muted)]">
-              On-device hand model + card edge detection. Nothing is uploaded.
-              Snap when the teal boxes lock onto your finger and card.
+              Place your finger and a bank card side by side.
             </p>
 
-            <div className="mt-6 overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--stage)] p-5">
+            <div className="stage mt-6 overflow-hidden rounded-2xl border border-[var(--stage-line)] px-10 py-7">
               <CaptureGuide staticPreview />
             </div>
 
             <ol className="mt-6 space-y-3">
               {[
-                "Flat table · phone parallel · even light",
-                "Ring finger on the LEFT · bank card on the RIGHT",
-                "Wait for AI lock, then capture — your size appears instantly",
+                "Flat surface. Even light.",
+                "Finger on the left. Card on the right.",
+                "Hold steady and capture.",
               ].map((t, i) => (
                 <li
                   key={t}
@@ -1305,18 +1362,18 @@ export function CameraScan() {
             <button
               type="button"
               onClick={beginCameraPrep}
-              className="gold-fill mt-8 w-full rounded-xl px-5 py-3.5 text-[15px] font-medium text-[var(--ink)] shadow-[inset_0_1px_0_rgba(255,255,255,0.4),0_12px_28px_-14px_rgba(184,147,74,0.55)]"
+              className="btn-primary mt-7 w-full"
             >
-              Open camera
+              Set up my scan <UiIcon name="arrow" />
             </button>
             <p className="mono mt-3 text-center text-[11px] text-[var(--muted)]">
-              {aiStatus}
+              Photos stay on your device.
             </p>
             <Link
               href="/sizer"
               className="mt-3 block text-center text-sm text-[var(--muted)] underline-offset-4 hover:underline"
             >
-              Prefer screen sizer instead?
+              Use screen measure instead
             </Link>
           </Panel>
         )}
@@ -1339,19 +1396,26 @@ export function CameraScan() {
             <h2 className="mt-3 font-[family-name:var(--font-display)] text-2xl font-bold">
               Your circumference
             </h2>
-            <div className="mt-5 rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-6 py-8 text-center">
+            <div className="result-hero mt-5 text-center">
               <p className="mono-label text-[var(--gold-deep)]">Circumference</p>
-              <p className="mt-2 font-[family-name:var(--font-display)] text-6xl text-[var(--gold-light)]">
+              <p className="mt-2 font-[family-name:var(--font-display)] text-6xl text-[var(--ink)]">
                 {formatMm(circumferenceMm)}
                 <span className="ml-2 text-2xl text-[var(--muted)]">mm</span>
               </p>
               <div className="mt-5 inline-flex flex-col items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-6 py-4">
-                <p className="font-[family-name:var(--font-display)] text-5xl font-bold leading-none text-[var(--gold-light)]">
+                <p className="font-[family-name:var(--font-display)] text-5xl font-bold leading-none text-[var(--ink)]">
                   US {sizeClassification.us}
                 </p>
                 <p className="font-[family-name:var(--font-display)] text-xl text-[var(--ink)]">
-                  {FIT_ZONE_LABEL[fitFromColor(sizeClassification.color)]}
+                  {fitFromColor(sizeClassification.color) === "tight"
+                    ? "This ring will feel tight"
+                    : FIT_ZONE_LABEL[fitFromColor(sizeClassification.color)]}
                 </p>
+                {fitFromColor(sizeClassification.color) === "tight" && (
+                  <p className="max-w-xs text-sm leading-relaxed text-[var(--muted)]">
+                    Measure another finger.
+                  </p>
+                )}
                 <p className="flex items-center gap-1.5">
                   <span
                     className={`inline-block h-2.5 w-2.5 rounded-full ${FIT_ZONE_STYLE[sizeClassification.color].chip}`}
@@ -1362,7 +1426,13 @@ export function CameraScan() {
                   </span>
                 </p>
               </div>
+              <details className="mt-5 text-left"><summary className="text-xs text-[var(--muted)]">Measurement details</summary><MeasurePixelStats pixels={measurePixels} theme="light" /></details>
             </div>
+            <button type="button" className="btn-primary mt-5 w-full" onClick={async () => {
+              try { await navigator.clipboard.writeText(formatMm(circumferenceMm)); setCopyNote("Copied. Paste it into your size guide."); }
+              catch { setCopyNote("Couldn’t copy. Note the measurement above."); }
+            }}>Copy measurement</button>
+            {copyNote && <p role="status" className="mt-3 text-center text-xs text-[var(--muted)]">{copyNote}</p>}
             <div className="mt-6 flex gap-3">
               <button
                 type="button"
@@ -1916,6 +1986,123 @@ function CardOverlay({
   );
 }
 
+type MeasurePixels = {
+  photoWidthPx: number;
+  photoHeightPx: number;
+  photoTotalPx: number;
+  cardWidthPx: number;
+  cardHeightPx: number;
+  fingerWidthPx: number;
+  circleDiameterPx: number;
+};
+
+function formatPhotoTotalPx(n: number) {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)} MP`;
+  return `${n.toLocaleString()} px`;
+}
+
+function MeasurePixelStats({
+  pixels,
+  theme = "dark",
+  compact = false,
+}: {
+  pixels: MeasurePixels;
+  theme?: "dark" | "light";
+  compact?: boolean;
+}) {
+  const items = [
+    {
+      label: "Photo",
+      value: `${pixels.photoWidthPx} × ${pixels.photoHeightPx}`,
+      sub: formatPhotoTotalPx(pixels.photoTotalPx),
+    },
+    {
+      label: "Card",
+      value: `${pixels.cardWidthPx} × ${pixels.cardHeightPx} px`,
+    },
+    { label: "Finger", value: `${pixels.fingerWidthPx} px` },
+    { label: "Circle", value: `${pixels.circleDiameterPx} px` },
+  ];
+
+  if (compact) {
+    return (
+      <div
+        className={`grid grid-cols-2 gap-1.5 rounded-lg border px-2 py-1.5 ${
+          theme === "light"
+            ? "border-[var(--border)] bg-[var(--surface)]"
+            : "border-white/10 bg-black/35"
+        }`}
+      >
+        {items.map((item) => (
+          <div key={item.label} className="text-center">
+            <p
+              className={`mono text-[8px] ${
+                theme === "light" ? "text-[var(--muted)]" : "text-white/40"
+              }`}
+            >
+              {item.label}
+            </p>
+            <p
+              className={`mono mt-0.5 text-[9px] font-medium ${
+                theme === "light" ? "text-[var(--ink)]" : "text-white/75"
+              }`}
+            >
+              {item.value}
+            </p>
+            {item.sub ? (
+              <p
+                className={`mono text-[8px] ${
+                  theme === "light" ? "text-[var(--muted)]" : "text-white/35"
+                }`}
+              >
+                {item.sub}
+              </p>
+            ) : null}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={`mt-4 grid grid-cols-2 gap-2 rounded-xl border px-3 py-3 sm:grid-cols-4 ${
+        theme === "light"
+          ? "border-[var(--border)] bg-[var(--surface)]"
+          : "border-white/10 bg-black/35"
+      }`}
+    >
+      {items.map((item) => (
+        <div key={item.label} className="text-center">
+          <p
+            className={`mono text-[9px] ${
+              theme === "light" ? "text-[var(--muted)]" : "text-white/45"
+            }`}
+          >
+            {item.label}
+          </p>
+          <p
+            className={`mono mt-1 text-[11px] font-medium ${
+              theme === "light" ? "text-[var(--ink)]" : "text-white/80"
+            }`}
+          >
+            {item.value}
+          </p>
+          {item.sub ? (
+            <p
+              className={`mono mt-0.5 text-[9px] ${
+                theme === "light" ? "text-[var(--muted)]" : "text-white/40"
+              }`}
+            >
+              {item.sub}
+            </p>
+          ) : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 const FIT_ZONE_STYLE: Record<
   FitColor,
   { chip: string; label: string; pill: string }
@@ -1940,16 +2127,18 @@ const FIT_ZONE_STYLE: Record<
 const FIT_ZONE_LABEL: Record<"ok" | "loose" | "tight", string> = {
   ok: "Ok",
   loose: "Loose",
-  tight: "Tight",
+  tight: "Another finger",
 };
 
 function CameraMeasureCard({
   circumferenceMm,
   classification,
+  pixels,
   compact = false,
 }: {
   circumferenceMm: number;
   classification: CircClassification;
+  pixels: MeasurePixels;
   compact?: boolean;
 }) {
   const zone = FIT_ZONE_STYLE[classification.color];
@@ -1957,30 +2146,33 @@ function CameraMeasureCard({
 
   if (compact) {
     return (
-      <div className="flex items-center justify-between gap-3 rounded-xl border border-white/15 bg-black/50 px-3 py-2 backdrop-blur-md">
-        <div className="min-w-0 text-left">
-          <p className="mono text-[9px] text-white/45">Circumference</p>
-          <p className="font-[family-name:var(--font-display)] text-xl font-bold leading-none text-[var(--gold-light)]">
-            {formatMm(circumferenceMm)}
-            <span className="ml-1 text-xs font-normal text-white/60">mm</span>
-          </p>
+      <div className="space-y-2">
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-white/15 bg-black/50 px-3 py-2 backdrop-blur-md">
+          <div className="min-w-0 text-left">
+            <p className="mono text-[9px] text-white/45">Circumference</p>
+            <p className="font-[family-name:var(--font-display)] text-xl font-bold leading-none text-[var(--gold-light)]">
+              {formatMm(circumferenceMm)}
+              <span className="ml-1 text-xs font-normal text-white/60">mm</span>
+            </p>
+          </div>
+          <div
+            className={`flex shrink-0 flex-col items-end rounded-lg border px-2.5 py-1.5 ${zone.pill}`}
+          >
+            <p className="font-[family-name:var(--font-display)] text-lg font-bold leading-none text-[var(--gold-light)]">
+              US {classification.us}
+            </p>
+            <p className="mt-0.5 flex items-center gap-1">
+              <span
+                className={`inline-block h-1.5 w-1.5 rounded-full ${zone.chip}`}
+                aria-hidden
+              />
+              <span className="mono text-[8px] text-white/55">
+                {FIT_ZONE_LABEL[fit]}
+              </span>
+            </p>
+          </div>
         </div>
-        <div
-          className={`flex shrink-0 flex-col items-end rounded-lg border px-2.5 py-1.5 ${zone.pill}`}
-        >
-          <p className="font-[family-name:var(--font-display)] text-lg font-bold leading-none text-[var(--gold-light)]">
-            US {classification.us}
-          </p>
-          <p className="mt-0.5 flex items-center gap-1">
-            <span
-              className={`inline-block h-1.5 w-1.5 rounded-full ${zone.chip}`}
-              aria-hidden
-            />
-            <span className="mono text-[8px] text-white/55">
-              {FIT_ZONE_LABEL[fit]}
-            </span>
-          </p>
-        </div>
+        <MeasurePixelStats pixels={pixels} compact />
       </div>
     );
   }
@@ -2009,6 +2201,7 @@ function CameraMeasureCard({
           <span className="mono text-[10px] text-white/55">{zone.label} zone</span>
         </p>
       </div>
+      <MeasurePixelStats pixels={pixels} />
     </div>
   );
 }
@@ -2017,6 +2210,7 @@ function FingerAdjustPanel({
   circleD,
   circumferenceMm,
   classification,
+  pixels,
   cardW,
   onCircleD,
   onCardW,
@@ -2024,6 +2218,7 @@ function FingerAdjustPanel({
   circleD: number;
   circumferenceMm: number;
   classification: CircClassification;
+  pixels: MeasurePixels;
   cardW: number;
   onCircleD: (d: number) => void;
   onCardW: (w: number) => void;
@@ -2047,6 +2242,7 @@ function FingerAdjustPanel({
       <CameraMeasureCard
         circumferenceMm={circumferenceMm}
         classification={classification}
+        pixels={pixels}
         compact
       />
 
@@ -2205,25 +2401,25 @@ function CameraPrepSlides({
     {
       badge: "Step 1 of 4",
       title: "Room light",
-      body: "Use medium brightness — not too dark, not too bright. Avoid harsh shadows and direct glare on the card.",
+      body: "Use even light. Avoid shadows and glare on the card.",
       visual: <PrepLightVisual />,
     },
     {
       badge: "Step 2 of 4",
       title: "Distance",
-      body: "Hold the phone 26–30 cm above your hand and card — about one hand width. Too close or too far will skew the measure.",
+      body: "Hold your phone 26–30 cm above your hand and card.",
       visual: <PrepDistanceVisual />,
     },
     {
       badge: "Step 3 of 4",
-      title: "Level & symmetry",
-      body: "Tilt the phone until the yellow + merges with the white + in the center. Both crosses should be perfectly aligned before you capture.",
+      title: "Keep it level",
+      body: "Align the yellow and white crosses. Then hold still.",
       visual: <PrepLevelVisual />,
     },
     {
       badge: "Step 4 of 4",
       title: "Adjust the circle",
-      body: "After the snap, tap Adjust finger. Slide until the circle sits on your ring finger, then resize so it touches both skin edges — not folds, not empty space.",
+      body: "After capture, fit the circle to both edges of your finger.",
       visual: <PrepAdjustVisual />,
     },
   ] as const;
@@ -2286,7 +2482,7 @@ function CameraPrepSlides({
         <button
           type="button"
           onClick={onContinue}
-          className="gold-fill w-full shrink-0 rounded-xl px-5 py-3 text-[15px] font-medium text-[var(--ink)] shadow-[inset_0_1px_0_rgba(255,255,255,0.4),0_12px_28px_-14px_rgba(184,147,74,0.55)]"
+          className="btn-primary w-full shrink-0"
         >
           {isLast ? "Open camera" : "Continue"}
         </button>
@@ -2609,37 +2805,5 @@ function StepDots({ step }: { step: Step }) {
   );
   const labels = ["Start", "Camera", "Size", "Saved"];
 
-  return (
-    <ol className="mb-5 flex items-center gap-1">
-      {labels.map((label, i) => {
-        const active = i === idx;
-        const done = i < idx;
-        return (
-          <li key={label} className="flex min-w-0 flex-1 items-center gap-1">
-            <span
-              className={`mono flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[9px] ${
-                active
-                  ? "bg-[var(--ink)] text-white"
-                  : done
-                    ? "bg-[var(--gold)] text-[var(--ink)]"
-                    : "bg-[var(--surface-2)] text-[var(--muted)]"
-              }`}
-            >
-              {done ? "✓" : i + 1}
-            </span>
-            <span
-              className={`mono-label hidden truncate sm:inline ${
-                active ? "text-[var(--ink)]" : "text-[var(--muted)]"
-              }`}
-            >
-              {label}
-            </span>
-            {i < labels.length - 1 && (
-              <span className="h-px min-w-2 flex-1 bg-[var(--border)]" />
-            )}
-          </li>
-        );
-      })}
-    </ol>
-  );
+  return <ProgressSteps labels={labels} stepIndex={idx} />;
 }

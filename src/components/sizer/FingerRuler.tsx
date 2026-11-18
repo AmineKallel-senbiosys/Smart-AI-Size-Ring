@@ -38,7 +38,7 @@ export function FingerRuler({
   onSwitchRing,
   onResult,
   guided = false,
-  nextLabel = "Next step",
+  nextLabel = "See my size",
 }: Props) {
   const trackRef = useRef<HTMLDivElement>(null);
 
@@ -68,6 +68,7 @@ export function FingerRuler({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLElement && e.target.closest("input, select, textarea, [contenteditable=true]")) return;
       if (e.key === "ArrowLeft") {
         e.preventDefault();
         nudge(-0.2);
@@ -83,16 +84,16 @@ export function FingerRuler({
   return (
     <div className="space-y-5">
       <StepHeading title="Measure your finger">
-        Wrap a thin strip of paper around your finger, mark where it meets, then
-        lay it on the ruler from 0 and drag the marker to your mark.{" "}
-        <button
-          type="button"
-          onClick={onRecalibrate}
-          className="text-[var(--gold-deep)] underline underline-offset-2 hover:text-[var(--ink)]"
-        >
-          Re-calibrate screen
-        </button>
+        Wrap a thin paper strip snugly around your finger.
       </StepHeading>
+      <ol className="grid grid-cols-3 gap-2 text-center text-sm text-[var(--ink)]">
+        {["Wrap", "Mark overlap", "Lay flat at 0"].map((label, i) => (
+          <li key={label} className="rounded-xl bg-[var(--surface-2)] px-2 py-3">
+            <span className="mx-auto mb-2 flex h-6 w-6 items-center justify-center rounded-full bg-[var(--surface)] text-xs text-[var(--gold-deep)]">{i + 1}</span>
+            {label}
+          </li>
+        ))}
+      </ol>
 
       {!guided && (
         <ModeToggle
@@ -102,9 +103,8 @@ export function FingerRuler({
       )}
 
       <Stage
-        caption="Align the strip at 0 · drag to your mark"
+        caption="Move the gold marker to your mark"
         align="left"
-        bleed
       >
         <div
           ref={trackRef}
@@ -124,14 +124,14 @@ export function FingerRuler({
           aria-label="Finger circumference in millimetres"
           tabIndex={0}
         >
-          <div className="absolute inset-x-0 top-10 h-px bg-[#8c7c66]" />
+          <div className="absolute inset-x-0 top-10 h-px bg-white/35" />
           {Array.from({ length: RULER_MM + 1 }, (_, i) => {
             const isMajor = i % 10 === 0;
             const isMid = i % 5 === 0;
             return (
               <div
                 key={i}
-                className="absolute top-10 -translate-x-1/2 bg-[#8c7c66]"
+                className="absolute top-10 -translate-x-1/2 bg-white/35"
                 style={{
                   left: i / calibration.mmPerPx,
                   width: 1,
@@ -139,7 +139,7 @@ export function FingerRuler({
                 }}
               >
                 {isMajor && (
-                  <span className="mono absolute -top-5 left-1/2 -translate-x-1/2 text-[10px] tabular-nums text-[#8c7c66]">
+                  <span className="mono absolute -top-5 left-1/2 -translate-x-1/2 text-[10px] tabular-nums text-white/55">
                     {i}
                   </span>
                 )}
@@ -167,7 +167,7 @@ export function FingerRuler({
           step={0.1}
           value={circumferenceMm}
           onChange={(e) => onCircumferenceChange(+e.target.value)}
-          className="h-4 flex-1"
+          className="h-11 min-w-0 flex-1"
           aria-label="Finger circumference"
         />
         <StepperButton label="Larger" onClick={() => nudge(0.5)}>
@@ -176,7 +176,7 @@ export function FingerRuler({
       </div>
 
       <p className="mono text-center text-[11px] text-[var(--muted)]">
-        Use ← → arrow keys for fine adjustment
+        Scroll the ruler sideways if needed.
       </p>
 
       <div className="flex items-center justify-between gap-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3">
@@ -193,6 +193,9 @@ export function FingerRuler({
       </div>
 
       <StepNav onBack={onBack} onNext={onResult} nextLabel={nextLabel} />
+      <button type="button" onClick={onRecalibrate} className="block text-sm text-[var(--gold-deep)] underline underline-offset-4">
+        Adjust screen calibration
+      </button>
     </div>
   );
 }

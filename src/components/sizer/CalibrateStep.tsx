@@ -48,6 +48,7 @@ export function CalibrateStep({ initial, onSaved, onBack, onContinue }: Props) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLElement && e.target.closest("input, select, textarea, [contenteditable=true]")) return;
       if (e.key === "ArrowLeft") {
         e.preventDefault();
         nudge(-0.01);
@@ -79,19 +80,19 @@ export function CalibrateStep({ initial, onSaved, onBack, onContinue }: Props) {
 
   return (
     <div className="space-y-5">
-      <StepHeading title="Calibrate your screen">
-        So the on-screen ring reflects real-world millimetres on this device.
+      <StepHeading title={obj.shape === "rect" ? "Match your card" : "Match your coin"}>
+        Place a card or coin on screen. Adjust until the edges match.
       </StepHeading>
 
       {initial && saved && (
         <p className="rounded-lg bg-[var(--gold-soft)] px-3 py-2 text-sm text-[var(--ink)]">
-          ✓ Calibration saved on this device — recalibrate below or skip ahead.
+          ✓ Screen calibrated. Continue or adjust below.
         </p>
       )}
 
       <div className="space-y-2">
         <label className="mono-label text-[var(--muted)]" htmlFor="ref-object">
-          Reference object
+          Use a card or coin
         </label>
         <select
           id="ref-object"
@@ -111,9 +112,8 @@ export function CalibrateStep({ initial, onSaved, onBack, onContinue }: Props) {
       </div>
 
       <Stage
-        caption={`Hold the ${obj.shape === "rect" ? "card" : "coin"} against the screen`}
+        caption="Match the outer edges"
         align="left"
-        bleed
         minHeight={Math.max(168, outlinePx + 40)}
       >
         <div className="relative pl-3">
@@ -122,7 +122,7 @@ export function CalibrateStep({ initial, onSaved, onBack, onContinue }: Props) {
             aria-hidden
           />
           <span
-            className="mono absolute -left-0.5 -top-4 text-[10px] text-[#8c7c66]"
+            className="mono absolute -left-0.5 -top-4 text-[10px] text-white/55"
             aria-hidden
           >
             0
@@ -144,11 +144,7 @@ export function CalibrateStep({ initial, onSaved, onBack, onContinue }: Props) {
       </Stage>
 
       <p className="mono text-center text-[11px] leading-relaxed text-[var(--muted)]">
-        {obj.shape === "rect"
-          ? `Target ${obj.widthMm} × ${obj.heightMm} mm`
-          : `Target ${obj.sizeMm} mm across`}
-        <span className="mx-1.5 text-[var(--gold)]">·</span>
-        Line up the left edge at 0, scroll if it runs past the panel
+        Align left. Scroll sideways if needed.
       </p>
 
       <div className="flex items-center gap-3">
@@ -165,7 +161,7 @@ export function CalibrateStep({ initial, onSaved, onBack, onContinue }: Props) {
             setScale(+e.target.value);
             setSaved(false);
           }}
-          className="h-4 flex-1"
+          className="h-11 min-w-0 flex-1"
           aria-label="Calibration scale"
         />
         <StepperButton label="Increase scale" onClick={() => nudge(0.02)}>
@@ -173,14 +169,8 @@ export function CalibrateStep({ initial, onSaved, onBack, onContinue }: Props) {
         </StepperButton>
       </div>
 
-      <div className="flex items-center justify-between gap-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3">
-        <div>
-          <p className="mono-label text-[var(--muted)]">Scale</p>
-          <p className="font-[family-name:var(--font-display)] text-2xl leading-tight text-[var(--ink)]">
-            {scale.toFixed(2)}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-xs text-[var(--muted)]">− Smaller · Larger +</span>
           <button
             type="button"
             onClick={() => {
@@ -191,26 +181,16 @@ export function CalibrateStep({ initial, onSaved, onBack, onContinue }: Props) {
           >
             Reset
           </button>
-          <button
-            type="button"
-            onClick={persist}
-            className="mono-label rounded-lg bg-[var(--ink)] px-3 py-2 text-[var(--bg)] hover:opacity-90"
-          >
-            {saved ? "Saved" : "Save"}
-          </button>
-        </div>
       </div>
 
       <details className="rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-4 py-3">
         <summary className="mono-label cursor-pointer text-[var(--ink)]">
-          Tips for accurate calibration
+          Need help?
         </summary>
         <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-[var(--muted)]">
-          <li>Ensure your browser zoom is 100%.</li>
-          <li>Match the object&apos;s outer edge to the dashed outline.</li>
-          <li>Place the object directly on the screen (no case or sleeve).</li>
-          <li>Use good lighting and look straight on, not at an angle.</li>
-          <li>Re-calibrate if you switch devices.</li>
+          <li>Use 100% browser zoom.</li>
+          <li>Remove any card sleeve and look straight at the screen.</li>
+          <li>Repeat this step when switching devices.</li>
         </ul>
       </details>
 
@@ -220,7 +200,7 @@ export function CalibrateStep({ initial, onSaved, onBack, onContinue }: Props) {
           persist();
           onContinue();
         }}
-        nextLabel="Continue"
+        nextLabel="Screen is ready"
       />
     </div>
   );
