@@ -3,9 +3,15 @@
 Reads one JSON job per line on stdin and answers one JSON line on stdout.
   mode "inspect": fast live-camera check (hand, card, spread, flat, framed)
   mode "measure": MobileSAM knuckle-band width (the "k8" recipe) for 5 fingers
-Nothing is written to disk: photos live only in memory while measured.
+Photos live only in memory while measured, EXCEPT the temporary test copies below.
+
+TEST COPIES (temporary, for checking the detection): after a successful measurement two JPGs are
+saved in data/test-photos/ (switch: RING_SAVE_TEST_PHOTOS=true/false in .env.local (project root) or onehand-service/.env, default OFF; folder override: RING_TEST_PHOTOS_DIR):
+  *_blurred.jpg    the photo with the card blurred (the unblurred photo is never saved)
+  *_annotated.jpg  the same, plus the card outline, the finger bones and the finger-width lines
+These show a hand: delete the folder when testing is over.
 """
-import sys, json, base64, os
+import sys, json, base64, os, time, itertools
 for variable in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS'):
     os.environ[variable] = os.environ.get('RING_VISION_THREADS', '1')
 from pathlib import Path
@@ -36,6 +42,102 @@ FINGERS = [('little', 17, 18, [13]), ('ring', 13, 14, [9, 17]), ('middle', 9, 10
            ('index', 5, 6, [9]), ('thumb', 2, 3, [])]
 KNUCKLE_BAND_MM = 8   # the best recipe: +/-8 mm around the PIP (IP for the thumb) knuckle
 MIN_SECTIONS = 3
+
+
+TEST_DIR = Path(os.environ.get('RING_TEST_PHOTOS_DIR') or ROOT / 'data' / 'test-photos')
+ENV_FILES = [ROOT / '.env', ROOT.parent / '.env.local', ROOT.parent / '.env']
+
+
+def save_enabled():
+    """RING_SAVE_TEST_PHOTOS: true = save the test photos, anything else (or missing) = off.
+    Looked up in the environment, then onehand-service/.env, then the project's .env.local and .env.
+    The files are read on every photo, so changing them needs no restart."""
+    value = os.environ.get('RING_SAVE_TEST_PHOTOS')
+    for env_file in ENV_FILES:
+        if value is not None:
+            break
+        try:
+            for line in env_file.read_text(encoding='utf-8').splitlines():
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    key, _, raw = line.partition('=')
+                    if key.strip() == 'RING_SAVE_TEST_PHOTOS':
+                        value = raw.strip().strip('"\'')
+        except OSError:
+            pass
+    return str(value or '').strip().lower() in ('1', 'true', 'yes', 'on')
+_counter = itertools.count(1)
+
+
+def test_log(message):
+    """Append one line to data/test-photos/_log.txt (the service hides the worker's stderr)."""
+    if not save_enabled():
+        return
+    try:
+        TEST_DIR.mkdir(parents=True, exist_ok=True)
+        with open(TEST_DIR / '_log.txt', 'a', encoding='utf-8') as handle:
+            handle.write(time.strftime('%Y-%m-%d %H:%M:%S ') + message + '\n')
+    except Exception:  # noqa: BLE001
+        pass
+
+
+test_log(f'worker started, test photos ON, folder: {TEST_DIR}')  # only written when saving is enabled
+BONES = {'little': [17, 18, 19, 20], 'ring': [13, 14, 15, 16], 'middle': [9, 10, 11, 12], 'index': [5, 6, 7, 8], 'thumb': [2, 3, 4]}
+
+
+def blur_card(image, q, inner=0.86):
+    """Blur only the inside of the card. A thin sharp border (about 7% of each side) stays, so the edges remain visible."""
+    h, w = image.shape[:2]
+    centre = q.mean(axis=0)
+    core = (centre + (q - centre) * inner).astype(np.int32)
+    mask = np.zeros((h, w), np.uint8)
+    cv2.fillConvexPoly(mask, core, 255)
+    card_w = float(np.linalg.norm(q[0] - q[1]))
+    k = int(card_w * 0.16) | 1
+    blurred = cv2.GaussianBlur(image, (k, k), 0)
+    blurred = cv2.GaussianBlur(blurred, (k, k), 0)
+    soft = cv2.GaussianBlur(mask, (9, 9), 0).astype(np.float32)[..., None] / 255.0
+    return (image * (1 - soft) + blurred * soft).astype(np.uint8)
+
+
+def save_test_photos(image, lm, q, mask, details):
+    """Never raises: the test copies must not be able to change a measurement."""
+    try:
+        TEST_DIR.mkdir(parents=True, exist_ok=True)
+        stamp = time.strftime('%Y%m%d-%H%M%S') + f'-{next(_counter):03d}'
+        base = blur_card(image, q)
+        cv2.imwrite(str(TEST_DIR / f'{stamp}_blurred.jpg'), base, [cv2.IMWRITE_JPEG_QUALITY, 90])
+        note = base.copy()
+        h, w = note.shape[:2]
+        t = max(2, int(max(w, h) / 700))
+        try:
+            m8 = (np.asarray(mask) > 0).astype(np.uint8) * 255
+            contours, _ = cv2.findContours(m8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            cv2.drawContours(note, contours, -1, (255, 0, 255), t)
+        except Exception:
+            pass
+        cv2.polylines(note, [q.astype(np.int32)], True, (0, 255, 0), t * 2)
+        cv2.putText(note, 'card 85.6 x 53.98 mm', tuple((q[0] + [0, -12]).astype(int)), cv2.FONT_HERSHEY_SIMPLEX, t * 0.5, (0, 255, 0), t)
+        pts = lambda idx: [tuple(int(v) for v in lm[i]) for i in idx]
+        for name, idx in BONES.items():
+            p = pts(idx)
+            for a, b in zip(p, p[1:]):
+                cv2.line(note, a, b, (0, 215, 255), t)
+            for a in p:
+                cv2.circle(note, a, t * 2, (0, 140, 255), -1)
+            diag, entry = details.get(name, ({}, {}))
+            for sec in diag.get('sections', []):
+                edges = sec.get('maskEdgesPx')
+                if sec.get('status') == 'accepted' and edges and all(e is not None for e in edges):
+                    cv2.line(note, tuple(np.int32(edges[0])), tuple(np.int32(edges[1])), (255, 255, 0), max(1, t - 1))
+            width = entry.get('widthMm')
+            label = f"{name} {width:.1f} mm" if width else f"{name} ?"
+            cv2.putText(note, label, (p[-1][0] - 40, max(20, p[-1][1] - 20)), cv2.FONT_HERSHEY_SIMPLEX, t * 0.5, (255, 255, 255), t + 2)
+            cv2.putText(note, label, (p[-1][0] - 40, max(20, p[-1][1] - 20)), cv2.FONT_HERSHEY_SIMPLEX, t * 0.5, (0, 0, 0), t)
+        cv2.imwrite(str(TEST_DIR / f'{stamp}_annotated.jpg'), note, [cv2.IMWRITE_JPEG_QUALITY, 90])
+        test_log(f'saved {stamp} (blurred + annotated)')
+    except Exception as error:  # noqa: BLE001
+        test_log(f'test photo NOT saved: {error!r}')
 
 
 def detector(rgb):
@@ -83,7 +185,8 @@ def locate(image, inspect):
         flat = False
     if inspect:
         return image, None, dict(hand=True, card=True, spread=bool(spread), flat=bool(flat), framed=framed,
-                                 pixelScale=float((np.linalg.norm(q[0] - q[1]) + np.linalg.norm(q[2] - q[3])) / (2 * 85.6)))
+                                 pixelScale=float((np.linalg.norm(q[0] - q[1]) + np.linalg.norm(q[2] - q[3])) / (2 * 85.6)),
+                                 cardQuad=[[round(float(x) / w, 4), round(float(y) / h, 4)] for x, y in q])
     if not spread:
         raise ValueError('Separate all four fingers so their edges do not touch, then retake the photo.')
     return image, (lm, q), None
@@ -97,8 +200,11 @@ def measure(image):
     try:
         mask = neural_mask(image, lm, q)
     except (ValueError, ImportError, RuntimeError) as error:
+        if save_enabled():
+            save_test_photos(image, lm, q, np.zeros((h, w), np.uint8), {})
         raise ValueError('We could not identify a reliable hand outline. Please retake the photo on a contrasting, plain surface. ' + str(error)) from error
     fingers = {}
+    details = {}
     for name, mcp, pip, adjacent in FINGERS:
         entry = dict(widthMm=None, reason=None)
         if name == 'thumb' and (np.any(lm[[2, 3, 4]] / np.array([w, h]) <= .025) or np.any(lm[[2, 3, 4]] / np.array([w, h]) >= .975)):
@@ -120,6 +226,9 @@ def measure(image):
         if width is None:
             entry['reason'] = 'edges-unclear'
         fingers[name] = entry
+        details[name] = (diagnostics, entry)
+    if save_enabled():
+        save_test_photos(image, lm, q, mask, details)
     return dict(fingers=fingers, measured=sum(f['widthMm'] is not None for f in fingers.values()), pixelScale=round(scale, 3))
 
 
@@ -138,6 +247,8 @@ for line in sys.stdin:
             result = measure(image)
         print(json.dumps({'id': job['id'], 'result': result}), flush=True)
     except Exception as e:
+        if isinstance(job, dict) and job.get('mode') != 'inspect':
+            test_log(f'photo not saved, measurement stopped before the card was found: {e}')
         print(json.dumps({'id': (job or {}).get('id'), 'error': str(e)}), flush=True)
     finally:
         if isinstance(job, dict):

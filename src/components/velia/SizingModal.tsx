@@ -5,6 +5,7 @@ import { fingerPhrase, nextFingerAdvice } from "@/components/explore/FingerPlanS
 import { decideReadings, readingFromCirc, type FlowReading, type MethodId } from "@/components/explore/sizing-decision";
 import { Pill, VeliaModalShell } from "@/components/velia/VeliaModalShell";
 import { GenderStep } from "@/components/onehand/GenderStep";
+import { type WearTarget } from "@/components/onehand/HandPicker";
 import { OneHandPair } from "@/components/onehand/OneHandPair";
 import { OneHandSizes } from "@/components/onehand/OneHandSizes";
 import { sizeRows, type FingerKey, type Gender, type HandSide, type OneHandSession } from "@/lib/onehand/engine";
@@ -218,6 +219,8 @@ export function SizingModal({ onClose, onComplete }: Props) {
   const [screen, setScreen] = useState<Screen>("gender");
   const [gender, setGender] = useState<Gender | null>(null);
   const [oneHand, setOneHand] = useState<HandSide>("left");
+  const [wear, setWear] = useState<WearTarget | null>(null);
+  const [checkedHands, setCheckedHands] = useState<HandSide[]>([]);
   const [paired, setPaired] = useState(false);
   const [ohSession, setOhSession] = useState<OneHandSession | null>(null);
   const [ohFinger, setOhFinger] = useState<FingerKey>("index");
@@ -406,7 +409,11 @@ export function SizingModal({ onClose, onComplete }: Props) {
     setOhSession(done);
     const view = sizeRows(done);
     const first = view?.rows.find((row) => row.bestFit) ?? view?.rows.find((row) => row.size != null);
-    if (first) setOhFinger(first.finger);
+    if (view) {
+      setCheckedHands((hands) => (hands.includes(view.hand) ? hands : [...hands, view.hand]));
+      // keep the finger the customer chose when we have a size for it, otherwise suggest the best fit
+      setOhFinger((prev) => (view.rows.some((row) => row.finger === prev && row.size != null) ? prev : first?.finger ?? prev));
+    }
     setScreen("sizes");
   }, []);
 
@@ -447,10 +454,20 @@ export function SizingModal({ onClose, onComplete }: Props) {
   let footer: ReactNode = null;
 
   if (screen === "gender") {
-    body = <GenderStep gender={gender} hand={oneHand} onGender={setGender} onHand={setOneHand} />;
+    body = <GenderStep gender={gender} onGender={setGender} wear={wear} onWear={setWear} />;
     footer = (
       <div className="velia-f-row center">
-        <Pill disabled={!gender} onClick={() => gender && setScreen("pair")}>
+        <Pill
+          disabled={!gender || !wear}
+          onClick={() => {
+            if (!gender || !wear) return;
+            setOneHand(wear.hand);
+            setOhFinger(wear.finger);
+            setCheckedHands([]);
+            setPaired(false);
+            setScreen("pair");
+          }}
+        >
           Continue
         </Pill>
       </div>
@@ -476,7 +493,25 @@ export function SizingModal({ onClose, onComplete }: Props) {
   }
 
   if (screen === "sizes" && ohSession) {
-    body = <OneHandSizes session={ohSession} selected={ohFinger} onSelect={setOhFinger} />;
+    const otherHand: HandSide = oneHand === "left" ? "right" : "left";
+    body = (
+      <OneHandSizes
+        session={ohSession}
+        selected={ohFinger}
+        onSelect={setOhFinger}
+        wish={wear}
+        onOtherHand={
+          checkedHands.includes(otherHand)
+            ? undefined
+            : () => {
+                setOhSession(null);
+                setPaired(false);
+                setOneHand(otherHand);
+                setScreen("pair");
+              }
+        }
+      />
+    );
     footer = (
       <div className="velia-f-row">
         <Pill
@@ -485,6 +520,7 @@ export function SizingModal({ onClose, onComplete }: Props) {
           onClick={() => {
             setOhSession(null);
             setPaired(false);
+            setCheckedHands([]);
             setScreen("gender");
           }}
         >

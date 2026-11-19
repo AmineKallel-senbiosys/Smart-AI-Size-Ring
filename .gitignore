@@ -70,3 +70,6 @@ ENV/
 
 # Vercel
 .vercel
+
+# temporary test photos (blurred card, annotated): show a hand, never commit
+/onehand-service/data/test-photos/

@@ -1,0 +1,40 @@
+/* Blur over the card area of the live camera view. Display only: the video element itself is untouched. */
+.ohc-privacy {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  pointer-events: none;
+  -webkit-backdrop-filter: blur(26px) saturate(.85);
+  backdrop-filter: blur(26px) saturate(.85);
+  background: rgba(255, 255, 255, .1);
+  -webkit-mask-image: linear-gradient(#000 calc(100% - 14px), transparent);
+  mask-image: linear-gradient(#000 calc(100% - 14px), transparent);
+}
+.ohc-priv-note {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-style: normal;
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 500;
+  color: #fff;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, .5);
+}
+
+/* Live card blur: follows the detected card, inside only (the clip-path is set from the card corners). */
+.ohc-card-blur {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+  background: rgba(255, 255, 255, .08);
+  transition: clip-path .3s linear, -webkit-clip-path .3s linear;
+}

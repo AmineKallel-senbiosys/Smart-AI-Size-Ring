@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import "./camera-privacy.css";
 import { HandIllustration } from "@/components/onehand/HandIllustration";
 import { HandPhoto } from "@/components/onehand/HandPhoto";
 import {
@@ -30,6 +31,22 @@ const TIPS: [string, string][] = [
   ["Choose a plain, matte background", "A medium tone, neither very light nor very dark, keeps the edges clear."],
   ["Lay your phone flat", "Hold the phone directly above, level within 3°. The photo is taken automatically."],
 ];
+
+/**
+ * CHECKPOINT: live card blur that follows the detected card (inside only, the border stays sharp).
+ * Set to false to go back to the fixed blurred band over the card guide.
+ */
+const LIVE_CARD_BLUR = false;
+const CARD_BLUR_INNER = 0.86;
+
+function cardClip(quad: number[][]): string | null {
+  if (!Array.isArray(quad) || quad.length !== 4) return null;
+  const cx = quad.reduce((sum, p) => sum + p[0], 0) / 4;
+  const cy = quad.reduce((sum, p) => sum + p[1], 0) / 4;
+  return quad
+    .map((p) => `${((cx + (p[0] - cx) * CARD_BLUR_INNER) * 100).toFixed(2)}% ${((cy + (p[1] - cy) * CARD_BLUR_INNER) * 100).toFixed(2)}%`)
+    .join(", ");
+}
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -134,6 +151,7 @@ export function PhoneFlow({ sessionId }: { sessionId: string | null }) {
   const [selected, setSelected] = useState<FingerKey>("index");
   const [examples, setExamples] = useState(false);
   const [sentToDesktop, setSentToDesktop] = useState(false);
+  const [cardClipPath, setCardClipPath] = useState<string | null>(null);
 
   const stage = useStage();
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -203,6 +221,7 @@ export function PhoneFlow({ sessionId }: { sessionId: string | null }) {
     checkRef.current = [false, false, false];
     noSensorRef.current = !matchMedia("(pointer:coarse)").matches;
     setCameraError(null);
+    setCardClipPath(null);
     setChecks([false, false, false]);
     setCount(null);
     setLiveMessage("Starting the camera. Please hold still…");
@@ -355,6 +374,7 @@ export function PhoneFlow({ sessionId }: { sessionId: string | null }) {
         const took = performance.now() - started;
         const stale = took > 6000;
         setCheckMs(Math.round(took / 100) / 10);
+        if (LIVE_CARD_BLUR) setCardClipPath(check.card && check.cardQuad ? cardClip(check.cardQuad) : null);
         const flags: [boolean, boolean, boolean] = [
           check.hand === true && check.card === true && check.framed === true && check.resolutionOK === true,
           check.spread === true,
@@ -367,11 +387,13 @@ export function PhoneFlow({ sessionId }: { sessionId: string | null }) {
         } else missedChecks = 0;
         gate.observe(!stale && flags[0] && flags[1] && flags[2] && angleOk(), performance.now());
         setLiveMessage(stale ? "Live checks are catching up. Hold still." : liveCheckMessage(check));
-      } catch {
+      } catch (e) {
         if (!alive) return;
         gate.reset();
         checkRef.current = [false, false, false];
-        setLiveMessage("Live check unavailable. Keep your hand and card visible; retrying automatically.");
+        setCardClipPath(null);
+        const detail = e instanceof Error ? e.message.slice(0, 200) : "";
+        setLiveMessage(`Live check unavailable${detail ? `: ${detail}` : ""}. Retrying automatically.`);
       } finally {
         inspecting = false;
       }
@@ -415,7 +437,7 @@ export function PhoneFlow({ sessionId }: { sessionId: string | null }) {
   if (phase === "loading") {
     return (
       <div className="oh-phone oh-phone-center">
-        <div className="oh-spinner" aria-label="Loading" />
+        <div className="oh-spinner" aria-label="Loading" suppressHydrationWarning />
       </div>
     );
   }
@@ -536,9 +558,21 @@ export function PhoneFlow({ sessionId }: { sessionId: string | null }) {
       <div className="oh-phone oh-cam">
         <video ref={videoRef} className="oh-video" playsInline muted autoPlay />
         <div className="oh-shade" aria-hidden />
+        {/* Privacy: the card area is blurred on screen only. The measurement reads the camera video directly, so the photos are not affected. */}
+        {LIVE_CARD_BLUR && cardClipPath ? (
+          <div className="ohc-card-blur" style={{ clipPath: `polygon(${cardClipPath})`, WebkitClipPath: `polygon(${cardClipPath})` }} aria-hidden />
+        ) : (
+          <div className="ohc-privacy" style={{ height: stage.top + 253 * stage.scale }} aria-hidden />
+        )}
         <div className="ohc-stage" style={stageStyle}>
           <div className="ohc-zone" style={{ top: 71, height: 180 }} aria-hidden>
             <span>Card</span>
+            <em className="ohc-priv-note">
+              <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden>
+                <path d="M3 5V3.8a3 3 0 0 1 6 0V5M2.5 5h7v5.5h-7z" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+              </svg>
+              Card hidden for your privacy
+            </em>
           </div>
           <div className="ohc-zone" style={{ top: 255, height: 313 }} aria-hidden>
             <span>Hand</span>

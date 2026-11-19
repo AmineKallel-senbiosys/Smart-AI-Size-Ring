@@ -1,5 +1,5 @@
 /** Simple hand drawing (from the one-hand pages) with an optional ring and an optional card above the fingers. */
-const HAND_PATH =
+export const HAND_PATH =
   "M19 81 15 27Q14 20 18 20Q21 20 22 27L26 46Q28 49 29 44L26 12Q25 6 29 6Q33 6 33 12L36 43Q38 46 40 41L40 7Q40 1 44 1Q48 1 48 7L47 43Q49 48 52 43L56 15Q57 9 61 10Q64 11 63 17L60 52Q60 63 65 58L72 44Q75 39 79 42Q82 45 77 53L66 71 59 82";
 
 export function HandIllustration({
@@ -26,7 +26,7 @@ export function HandIllustration({
   );
 }
 
-const RING_AT = {
+export const RING_AT = {
   little: { x: 13.5, y: 32 },
   ring: { x: 24.5, y: 20 },
   middle: { x: 39.5, y: 14 },

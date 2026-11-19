@@ -38,6 +38,8 @@ export type LiveCheck = {
   framed?: boolean;
   pixelScale?: number;
   resolutionOK?: boolean;
+  /** the four card corners, 0..1 in the visible camera view (live blur) */
+  cardQuad?: number[][];
 };
 
 /* ------------------------------ HTTP ------------------------------ */

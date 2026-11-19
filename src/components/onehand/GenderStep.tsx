@@ -1,30 +1,31 @@
 "use client";
 
-import type { Gender, HandSide } from "@/lib/onehand/engine";
+import { HandPicker, type WearTarget } from "@/components/onehand/HandPicker";
+import { FINGER_LABEL, type Gender } from "@/lib/onehand/engine";
 
 const GENDERS: { id: Gender; label: string }[] = [
   { id: "female", label: "Female" },
   { id: "male", label: "Male" },
 ];
 
-/** Step before the QR code: the measurement settings are tuned per gender. */
+/** One page: gender (tunes the measurement) and where the customer will wear their Velia (picks the hand to measure). */
 export function GenderStep({
   gender,
-  hand,
   onGender,
-  onHand,
+  wear,
+  onWear,
 }: {
   gender: Gender | null;
-  hand: HandSide;
   onGender: (gender: Gender) => void;
-  onHand: (hand: HandSide) => void;
+  wear: WearTarget | null;
+  onWear: (target: WearTarget) => void;
 }) {
   return (
     <div className="velia-page">
       <div className="velia-head">
-        <h1 className="velia-h1">Choose your gender</h1>
+        <h1 className="velia-h1">What was your sex assigned at birth?</h1>
         <p className="velia-desc">
-          Finger shapes differ, so we tune the measurement for you. This is only used to find your size.
+          This helps provide accurate, meaningful results.
         </p>
       </div>
       <div className="velia-opts oh-gender" role="radiogroup" aria-label="Gender">
@@ -45,14 +46,18 @@ export function GenderStep({
           );
         })}
       </div>
-      <p className="oh-label">Hand to measure</p>
-      <div className="seg" role="group" aria-label="Hand to measure">
-        {(["left", "right"] as const).map((side) => (
-          <button key={side} type="button" className={hand === side ? "on" : undefined} onClick={() => onHand(side)}>
-            {side === "left" ? "Left hand" : "Right hand"}
-          </button>
-        ))}
-      </div>
+      <p className="hp-q">Where will you wear your Velia?</p>
+      <p className="hp-sub">Tap a finger to try the ring on. We&apos;ll measure that hand.</p>
+      <HandPicker value={wear} onChange={onWear} />
+      <p className="hp-pick" aria-live="polite">
+        {wear ? (
+          <>
+            <b>{wear.hand === "left" ? "Left" : "Right"} hand</b> · {FINGER_LABEL[wear.finger]}
+          </>
+        ) : (
+          " "
+        )}
+      </p>
     </div>
   );
 }
