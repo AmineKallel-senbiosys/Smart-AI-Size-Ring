@@ -18,6 +18,7 @@ import {
   publishActivity,
   sizeRows,
   type FingerKey,
+  type HandSide,
   type Level,
   type OneHandSession,
 } from "@/lib/onehand/engine";
@@ -152,6 +153,8 @@ export function PhoneFlow({ sessionId }: { sessionId: string | null }) {
   const [examples, setExamples] = useState(false);
   const [sentToDesktop, setSentToDesktop] = useState(false);
   const [cardClipPath, setCardClipPath] = useState<string | null>(null);
+  const [wrongHand, setWrongHand] = useState<HandSide | null>(null);
+  const expectedHandRef = useRef<HandSide | null>(null);
 
   const stage = useStage();
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -169,6 +172,10 @@ export function PhoneFlow({ sessionId }: { sessionId: string | null }) {
   useEffect(() => {
     phaseRef.current = phase;
   }, [phase]);
+
+  useEffect(() => {
+    expectedHandRef.current = session?.next?.side ?? null;
+  }, [session]);
 
   /* load the session the QR code points to */
   useEffect(() => {
@@ -222,6 +229,7 @@ export function PhoneFlow({ sessionId }: { sessionId: string | null }) {
     noSensorRef.current = !matchMedia("(pointer:coarse)").matches;
     setCameraError(null);
     setCardClipPath(null);
+    setWrongHand(null);
     setChecks([false, false, false]);
     setCount(null);
     setLiveMessage("Starting the camera. Please hold still…");
@@ -375,23 +383,35 @@ export function PhoneFlow({ sessionId }: { sessionId: string | null }) {
         const stale = took > 6000;
         setCheckMs(Math.round(took / 100) / 10);
         if (LIVE_CARD_BLUR) setCardClipPath(check.card && check.cardQuad ? cardClip(check.cardQuad) : null);
-        const flags: [boolean, boolean, boolean] = [
-          check.hand === true && check.card === true && check.framed === true && check.resolutionOK === true,
-          check.spread === true,
-          check.flat === true,
-        ];
+        const expected = expectedHandRef.current;
+        const wrong = expected && check.handSide && check.handSide !== expected ? check.handSide : null;
+        setWrongHand(wrong);
+        const flags: [boolean, boolean, boolean] = wrong
+          ? [false, false, false]
+          : [
+              check.hand === true && check.card === true && check.framed === true && check.resolutionOK === true,
+              check.spread === true,
+              check.flat === true,
+            ];
         checkRef.current = stale ? [false, false, false] : flags;
         if (!check.hand || !check.card) {
           missedChecks++;
           if (missedChecks >= 2) maxSide = 1280;
         } else missedChecks = 0;
         gate.observe(!stale && flags[0] && flags[1] && flags[2] && angleOk(), performance.now());
-        setLiveMessage(stale ? "Live checks are catching up. Hold still." : liveCheckMessage(check));
+        setLiveMessage(
+          wrong
+            ? `This is your ${wrong} hand, but you chose your ${expected} hand.`
+            : stale
+              ? "Live checks are catching up. Hold still."
+              : liveCheckMessage(check),
+        );
       } catch (e) {
         if (!alive) return;
         gate.reset();
         checkRef.current = [false, false, false];
         setCardClipPath(null);
+        setWrongHand(null);
         const detail = e instanceof Error ? e.message.slice(0, 200) : "";
         setLiveMessage(`Live check unavailable${detail ? `: ${detail}` : ""}. Retrying automatically.`);
       } finally {
@@ -558,6 +578,14 @@ export function PhoneFlow({ sessionId }: { sessionId: string | null }) {
       <div className="oh-phone oh-cam">
         <video ref={videoRef} className="oh-video" playsInline muted autoPlay />
         <div className="oh-shade" aria-hidden />
+        {wrongHand && (
+          <div className="ohc-wrong" role="alert">
+            <b>That&apos;s your {wrongHand} hand</b>
+            <span>
+              You chose your {expectedHandRef.current ?? (wrongHand === "left" ? "right" : "left")} hand. Show that hand to the camera, or go back and choose again.
+            </span>
+          </div>
+        )}
         {/* Privacy: the card area is blurred on screen only. The measurement reads the camera video directly, so the photos are not affected. */}
         {LIVE_CARD_BLUR && cardClipPath ? (
           <div className="ohc-card-blur" style={{ clipPath: `polygon(${cardClipPath})`, WebkitClipPath: `polygon(${cardClipPath})` }} aria-hidden />

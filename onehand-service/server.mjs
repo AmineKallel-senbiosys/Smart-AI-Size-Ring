@@ -225,7 +225,7 @@ const server=http.createServer(async(req,res)=>{try{
  const url=new URL(req.url,'http://localhost'),p=url.pathname;
  if(req.method==='POST'&&p==='/api/inspect'){
   const image=await read(req,4*1024*1024);if(image[0]!==255||image[1]!==216)return reply(res,415,{error:'Please capture a JPEG photo.'});
-  const data=await measure(image,'inspect'),safe={};for(const key of ['hand','card','spread','flat','framed','pixelScale','cardQuad'])if(data[key]!==undefined)safe[key]=data[key];return reply(res,200,safe);}
+  const data=await measure(image,'inspect'),safe={};for(const key of ['hand','card','spread','flat','framed','pixelScale','cardQuad','handSide'])if(data[key]!==undefined)safe[key]=data[key];return reply(res,200,safe);}
  if(p==='/api/public-url'&&req.method==='GET')return reply(res,200,{url:await publicUrl()});
  if(p==='/api/session'&&req.method==='POST'){let b={};try{b=JSON.parse((await read(req,2000)).toString('utf8')||'{}');}catch{}
   if(b.mode==='onehand'){if(b.hand!=='left'&&b.hand!=='right')return reply(res,400,{error:'Please choose the left or the right hand.'});if(b.gender!=='male'&&b.gender!=='female')return reply(res,400,{error:'Please choose male or female.'});const s={id:randomUUID(),mode:'onehand',hand:b.hand,scans:[{key:b.hand+'-back',side:b.hand,surface:'back'}],name:'',gender:b.gender,widths:{},photos:{},validated:false,busy:false,error:null,activity:null,touched:Date.now()};sessions.set(s.id,s);return reply(res,201,view(s));}const name=String(b.name||'').replace(/\s+/g,' ').trim().slice(0,80),gender=b.gender;if(name.length<2)return reply(res,400,{error:'Please enter your name.'});if(gender!=='male'&&gender!=='female')return reply(res,400,{error:'Please choose male or female.'});const s={id:randomUUID(),name,gender,widths:{},photos:{},validated:false,busy:false,error:null,activity:null,touched:Date.now()};sessions.set(s.id,s);return reply(res,201,view(s));}
@@ -266,6 +266,8 @@ const server=http.createServer(async(req,res)=>{try{
     const results=[];let lastError=null;
     for(const frame of frames){try{results.push(await measure(frame,'measure'));}catch(e){lastError=e;}}
     if(!results.length)throw lastError||new Error('The photo could not be measured.');
+    const seen=results.map(r=>r.handSide).filter(Boolean);
+    if(seen.length&&seen.every(side=>side!==s.hand)){const other=s.hand==='left'?'right':'left';throw new Error(`This photo shows your ${other} hand, but you chose your ${s.hand} hand. Place your ${s.hand} hand, or go back and choose your ${other} hand.`);}
     const merged=mergeFrames(results);
     if(merged.measured<MIN_FINGERS)throw new Error(`Only ${merged.measured} of 5 fingers could be measured. Keep the whole hand and card in view, separate the fingers gently, use a plain contrasting surface and retake the photo.`);
     s.widths[next.key]=merged.widths;s.photos[next.key]=frames[frames.length>>1];   // kept in memory only; /onehand writes it to disk only if the user validates

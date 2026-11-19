@@ -40,6 +40,8 @@ export type LiveCheck = {
   resolutionOK?: boolean;
   /** the four card corners, 0..1 in the visible camera view (live blur) */
   cardQuad?: number[][];
+  /** which hand the camera sees (back of the hand up); null when it cannot tell */
+  handSide?: HandSide | null;
 };
 
 /* ------------------------------ HTTP ------------------------------ */

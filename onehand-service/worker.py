@@ -140,6 +140,19 @@ def save_test_photos(image, lm, q, mask, details):
         test_log(f'test photo NOT saved: {error!r}')
 
 
+def hand_side(lm):
+    """'left' or 'right' for a hand seen from above with the BACK of the hand toward the camera (what the guide asks for).
+    The turn from the wrist-to-middle-knuckle direction to the pinky-to-index direction tells which hand it is, whatever the rotation.
+    Returns None when the hand is too edge-on to tell."""
+    forward = lm[9] - lm[0]
+    side = lm[5] - lm[17]
+    cross = float(forward[0] * side[1] - forward[1] * side[0])
+    scale = float(np.linalg.norm(forward) * np.linalg.norm(side))
+    if scale < 1e-6 or abs(cross) / scale < .25:
+        return None
+    return 'left' if cross > 0 else 'right'
+
+
 def detector(rgb):
     result = model.detect(mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb))
     return [np.array([(p.x, p.y) for p in hand], dtype=float) for hand in result.hand_landmarks]
@@ -168,11 +181,12 @@ def locate(image, inspect):
             return image, None, dict(hand=False, card=False, spread=False, flat=False)
         raise ValueError('No hand was detected. Show your whole hand, palm down, with all four fingers separated.')
     lm = max(hands, key=lambda p: np.ptp(p[:, 0]) * np.ptp(p[:, 1]))
+    side_of_hand = hand_side(lm)
     try:
         q = card_quad(image, lm)
     except ValueError:
         if inspect:
-            return image, None, dict(hand=True, card=False, spread=False, flat=False)
+            return image, None, dict(hand=True, card=False, spread=False, flat=False, handSide=side_of_hand)
         raise
     length = np.linalg.norm(lm[9] - lm[10])
     spread = all(np.linalg.norm(lm[a] - lm[b]) > length * .6 for a, b in [(8, 12), (12, 16), (16, 20)])
@@ -184,7 +198,7 @@ def locate(image, inspect):
     except ValueError:
         flat = False
     if inspect:
-        return image, None, dict(hand=True, card=True, spread=bool(spread), flat=bool(flat), framed=framed,
+        return image, None, dict(hand=True, card=True, spread=bool(spread), flat=bool(flat), framed=framed, handSide=side_of_hand,
                                  pixelScale=float((np.linalg.norm(q[0] - q[1]) + np.linalg.norm(q[2] - q[3])) / (2 * 85.6)),
                                  cardQuad=[[round(float(x) / w, 4), round(float(y) / h, 4)] for x, y in q])
     if not spread:
@@ -229,7 +243,7 @@ def measure(image):
         details[name] = (diagnostics, entry)
     if save_enabled():
         save_test_photos(image, lm, q, mask, details)
-    return dict(fingers=fingers, measured=sum(f['widthMm'] is not None for f in fingers.values()), pixelScale=round(scale, 3))
+    return dict(handSide=hand_side(lm), fingers=fingers, measured=sum(f['widthMm'] is not None for f in fingers.values()), pixelScale=round(scale, 3))
 
 
 print(json.dumps({'ready': True}), flush=True)
