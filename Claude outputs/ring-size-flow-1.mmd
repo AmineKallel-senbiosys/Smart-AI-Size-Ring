@@ -1,0 +1,84 @@
+%%{init: {"flowchart": {"curve": "linear", "nodeSpacing": 38, "rankSpacing": 56}, "themeVariables": {"fontSize": "15px"}}}%%
+flowchart TD
+  classDef desk fill:#eaf1fd,stroke:#4f7be0,color:#10244f
+  classDef phone fill:#f1ecff,stroke:#7a5af8,color:#2b1a66
+  classDef dec fill:#fff7e0,stroke:#d9a400,color:#4a3600
+  classDef good fill:#e6f7ea,stroke:#26a100,color:#0f3d00
+  classDef warn fill:#fdeaea,stroke:#d64545,color:#5a1111
+  classDef end_ fill:#121212,stroke:#121212,color:#fff
+
+  START(["Open 'Find your size'"]):::desk --> G["1. SEX ASSIGNED AT BIRTH + FINGER (one page)<br/>Pick Female/Male and tap a finger on the Left or Right hand<br/>→ chosen hand = hand to measure"]:::desk
+  G -->|"Continue (needs both choices)"| QR["2. QR CODE (desktop only)<br/>creates a session for the chosen hand + gender"]:::desk
+  QR -->|Back| G
+
+    P0{"PHONE<br/>Link valid?"}:::dec
+    P0 -->|"No: expired / service restarted / session lost"| PX["'This link has expired'<br/>Scan the QR again"]:::warn
+    P0 -->|Yes| P1["Intro: 5 tips<br/>card · back of hand · plain surface · phone flat"]:::phone
+    P1 --> P2["Camera (card area blurred on screen)<br/>3 live checks: card in view, phone level, good light<br/>→ 3 s countdown → 3 frames"]:::phone
+    P2 --> HW{"Which hand does<br/>the camera see?<br/>(back of hand up)"}:::dec
+    HW -->|"The chosen hand, or cannot tell"| P2OK["Checks can turn green"]:::phone
+    HW -->|"The other hand"| HWX["RED ALERT: 'That is your right hand,<br/>you chose your left hand'<br/>no countdown, no photo"]:::warn
+    HWX -->|"show the chosen hand"| P2
+    HWX -.->|"or go back on the computer and choose again"| G
+    P2OK --> P3
+    P2 -->|"Camera / motion refused"| PE
+    P3["Calculating…"]:::phone
+    P3 -->|"Photo can't be measured, or the photos show the other hand (server check)"| PE["'Let's try that again'<br/>Retake photo"]:::warn
+    PE --> P2
+    P3 -->|OK| P4["Sizes for 5 fingers<br/>'Continue on your computer'"]:::phone
+  QR -->|"phone scans the QR"| P0
+  PX -->|"scan again"| QR
+  P4 -->|"desktop sees: complete"| S
+
+  S["3. RECOMMENDED SIZE (desktop)<br/>photo + 5 rows: index · middle · ring · little · thumb"]:::desk
+  S --> D1{"Does the finger you<br/>chose have a size?<br/>(US 6 to 12)"}:::dec
+
+  D1 -->|Yes| SEL["Finger is preselected"]:::good
+  D1 -->|"No: below 6, above 12 or not measured"| ADV["ADVICE BANNER<br/>'Your finger is outside our sizes'"]:::warn
+
+  ADV --> A1["Option A: 'Wear it on your [best-fit finger] · US n'"]:::desk
+  ADV --> A2{"Other hand<br/>already measured?"}:::dec
+  A2 -->|No| A3["Option B: 'Check my other hand'"]:::desk
+  A2 -->|"Yes (both hands done)"| A4["No other-hand button<br/>pick best-fit finger or go Back"]:::warn
+  A3 -->|"new session, other hand"| QR
+  A1 --> SEL
+  A4 --> SEL
+
+  S -.->|"after other hand is measured"| D2{"Chosen finger<br/>fits on the other hand?"}:::dec
+  D2 -->|Yes| GOOD["'Good news: your [left/right] finger fits'"]:::good --> SEL
+  D2 -->|No| ADV
+
+  S -->|Back| G
+  SEL -->|"Continue (saves camera size = aiSize)"| H
+
+  H["4. PICK METHOD<br/>'Your photo says US n. Confirm with another method'"]:::desk
+  H -->|Back| S
+  H --> M1["Convert my ring size<br/>from a jeweler"]:::desk
+  H --> M2["Another ring sizing kit<br/>pick US size (UK/EU: coming soon)"]:::desk
+  H --> M3["Measure a ring I own<br/>calibrate with a card, then outline the ring"]:::desk
+  H --> M4["Wrap a strip, mark it<br/>guide, calibrate, measure on screen"]:::desk
+  M1 & M2 & M3 & M4 --> CM{"Method result vs photo size"}:::dec
+
+  CM -->|"Same US size as photo"| R
+  CM -->|"Different size / unclear"| MIS["MISMATCH on Pick-method page<br/>'We got two different sizes'<br/>[Photo n] ≠ [Measurement m]<br/>'Pick another method to confirm'"]:::warn
+
+  MIS --> MORE{"What does the decision say?"}:::dec
+  MORE -->|"Only 1 reading so far"| CONT["Continue → another unused method"]:::desk
+  CONT --> H
+  MORE -->|"2+ readings that match each other"| FIN["Finish → recommend the measured size"]:::good
+  FIN --> R
+  MORE -->|"Readings disagree"| REM["Remeasure (clears readings)"]:::warn
+  REM --> H
+  MORE -->|"Loose / too large / no size"| NEXT["Next finger or sizing kit"]:::warn
+  NEXT --> KIT
+
+  H -.->|"ring screen: 'Change finger'"| S
+
+  R["5. RESULT<br/>'Your size is US n'<br/>2 of 2 measurements agree"]:::good
+  R -->|Back| H
+  R --> DONE(["Done: size sent with the outcome<br/>(+ saved on this browser)"]):::end_
+
+  KIT["Sizing kit page<br/>'Try sizes at home · $20 comes back'<br/>(no size found)"]:::warn
+  KIT -->|Back| H
+  KIT --> DONE2(["Order the sizing kit"]):::end_
+

@@ -315,8 +315,8 @@ export const FINGER_LABEL: Record<FingerKey, string> = {
   thumb: "Thumb",
 };
 
-/** Order used on screen (matches the Figma list). */
-export const FINGER_ORDER: FingerKey[] = ["index", "middle", "ring", "little", "thumb"];
+/** Order used on screen (little finger first, thumb last). */
+export const FINGER_ORDER: FingerKey[] = ["little", "ring", "middle", "index", "thumb"];
 
 export type SizeRow = {
   finger: FingerKey;

@@ -136,7 +136,17 @@ function RingDone({ size }: { size: number }) {
 
 const same = (a: boolean[], b: boolean[]) => a.length === b.length && a.every((v, i) => v === b[i]);
 
-export function PhoneFlow({ sessionId }: { sessionId: string | null }) {
+type PhoneFlowProps = {
+  sessionId: string | null;
+  /** used on the website itself (no QR code): called with the finished measurement */
+  onDone?: (session: OneHandSession, finger: FingerKey) => void;
+  /** the finger selected on the sizes page when it opens */
+  initialFinger?: FingerKey;
+  /** used on the website itself: leave the camera flow and go back to the website */
+  onExit?: () => void;
+};
+
+function PhoneFlowInner({ sessionId, onDone, initialFinger }: PhoneFlowProps) {
   const [phase, setPhase] = useState<Phase>(sessionId ? "loading" : "missing");
   const [session, setSession] = useState<OneHandSession | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -149,7 +159,7 @@ export function PhoneFlow({ sessionId }: { sessionId: string | null }) {
   const [bubble, setBubble] = useState<{ x: number; y: number; angle: number } | null>(null);
   const [needsMotion, setNeedsMotion] = useState(false);
   const [checkMs, setCheckMs] = useState<number | null>(null);
-  const [selected, setSelected] = useState<FingerKey>("index");
+  const [selected, setSelected] = useState<FingerKey>(initialFinger ?? "index");
   const [examples, setExamples] = useState(false);
   const [sentToDesktop, setSentToDesktop] = useState(false);
   const [cardClipPath, setCardClipPath] = useState<string | null>(null);
@@ -538,8 +548,7 @@ export function PhoneFlow({ sessionId }: { sessionId: string | null }) {
                   type="button"
                   role="radio"
                   aria-checked={on}
-                  disabled={row.size == null}
-                  className={`ohr-card ${on ? "on" : ""}`}
+                  className={`ohr-card ${on ? "on" : ""} ${row.size == null ? "nosize" : ""}`}
                   onClick={() => setSelected(row.finger)}
                 >
                   <span className="ohr-size">{row.display}</span>
@@ -550,7 +559,18 @@ export function PhoneFlow({ sessionId }: { sessionId: string | null }) {
               );
             })}
           </div>
-          {sentToDesktop ? (
+          {onDone ? (
+            <button
+              type="button"
+              className="ohr-btn"
+              onClick={() => {
+                if (sessionId) publishActivity(sessionId, "done").catch(() => {});
+                if (session) onDone(session, selected);
+              }}
+            >
+              Continue
+            </button>
+          ) : sentToDesktop ? (
             <p className="ohr-done">Look at your computer to continue.</p>
           ) : (
             <button
@@ -722,5 +742,22 @@ export function PhoneFlow({ sessionId }: { sessionId: string | null }) {
         </div>
       )}
     </div>
+  );
+}
+
+/** Phone side of the flow. Opened from the QR code (/m) or, on a phone, straight from the website. */
+export function PhoneFlow(props: PhoneFlowProps) {
+  return (
+    <>
+      <PhoneFlowInner {...props} />
+      {props.onExit && (
+        <button type="button" className="ohp-exit" aria-label="Back to the website" onClick={props.onExit}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M19 12H5" />
+            <path d="M11 6l-6 6 6 6" />
+          </svg>
+        </button>
+      )}
+    </>
   );
 }

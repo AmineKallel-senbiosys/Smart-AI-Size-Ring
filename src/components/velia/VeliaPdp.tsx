@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { SizingModal } from "@/components/velia/SizingModal";
+import { SIZING_OPEN_KEY, clearSizingResume } from "@/lib/onehand/resume";
 import type { AvailableUsSize } from "@/lib/explore-flow";
 
 const COLORS = [
@@ -25,6 +26,30 @@ export function VeliaPdp({ openSizingOnMount = false }: Props) {
   const [sizingOpen, setSizingOpen] = useState(openSizingOnMount);
   const [toast, setToast] = useState<string | null>(null);
   const [stackOn, setStackOn] = useState<Record<number, boolean>>({});
+
+  // A reload (F5, dev hot reload) must not throw the customer back to the page: reopen the sizing window.
+  useEffect(() => {
+    try {
+      if (window.sessionStorage.getItem(SIZING_OPEN_KEY) === "1") setSizingOpen(true);
+    } catch {
+      /* storage unavailable */
+    }
+  }, []);
+
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (sizingOpen) {
+      wasOpen.current = true;
+      try {
+        window.sessionStorage.setItem(SIZING_OPEN_KEY, "1");
+      } catch {
+        /* storage unavailable */
+      }
+    } else if (wasOpen.current) {
+      wasOpen.current = false;
+      clearSizingResume();
+    }
+  }, [sizingOpen]);
 
   useEffect(() => {
     if (!toast) return;

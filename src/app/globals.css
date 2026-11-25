@@ -799,6 +799,11 @@ html:has(.velia-pdp) main {
   display: flex; align-items: center; justify-content: center; border-radius: 20px;
 }
 .velia-m-close:hover { background: #f3f3f3; }
+.velia-m-back {
+  position: absolute; left: 16px; top: 8px; width: 40px; height: 40px;
+  display: flex; align-items: center; justify-content: center; border-radius: 20px; color: #000;
+}
+.velia-m-back:hover { background: #f3f3f3; }
 .velia-m-close img { width: 12px; height: 12px; }
 .velia-progress {
   flex: none; display: flex; gap: 4px; padding: 0 32px; z-index: 3;

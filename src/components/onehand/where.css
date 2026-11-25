@@ -36,3 +36,7 @@
 .oh-advice-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .oh-advice-actions button { border: 1px solid #121212; background: #fff; color: #121212; border-radius: 999px; padding: 7px 14px; font-size: 13px; font-weight: 500; cursor: pointer; }
 .oh-advice-actions button.primary { background: #121212; color: #fff; }
+
+.oh-advice.info { background: #eef4ff; border-color: #bcd3ff; }
+.oh-advice.info h2 { color: #0a3fa8; }
+.oh-row.nosize .oh-size { color: #9a9a9a; }

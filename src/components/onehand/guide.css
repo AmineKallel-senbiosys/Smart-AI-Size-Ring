@@ -1,0 +1,19 @@
+/* "How it works" guide shown before the QR code */
+.oh-guide { flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center; }
+.oh-guide-video { width: 100%; max-width: 640px; aspect-ratio: 16 / 9; border-radius: 24px; background: #f2ece5; object-fit: cover; display: block; }
+.oh-guide-cap { margin: 0; font-size: 13px; line-height: 18px; color: #808080; }
+.oh-guide-actions { display: flex; gap: 10px; align-items: center; justify-content: center; flex-wrap: wrap; }
+.oh-guide-btn { height: 44px; padding: 0 24px; border-radius: 22px; background: #000; color: #fff; font-size: 14px; font-weight: 500; cursor: pointer; }
+.oh-guide-btn:hover { background: #222; }
+.oh-guide-again { margin-top: 12px; font-size: 13px; line-height: 18px; color: #4a4a4a; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; background: none; border: 0; }
+.oh-guide-again:hover { color: #000; }
+
+/* back arrow over the phone flow when it runs inside the website */
+.ohp-exit { position: fixed; top: 12px; left: 12px; z-index: 1100; width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.92); color: #000; border: 1px solid rgba(0,0,0,.12); cursor: pointer; }
+.oh-guide-mobile { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.na-note { display: block; margin-top: 2px; font-size: 12px; line-height: 16px; color: #996969; font-weight: 500; }
+
+.ohr-card.nosize .ohr-size { color: #9a9a9a; }
+
+/* portrait guide (phone) */
+.oh-guide-video.portrait { width: auto; max-width: 100%; aspect-ratio: 9 / 16; height: min(470px, calc(100dvh - 300px)); }

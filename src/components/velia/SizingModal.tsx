@@ -4,6 +4,10 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { fingerPhrase, nextFingerAdvice } from "@/components/explore/FingerPlanStep";
 import { decideReadings, readingFromCirc, type FlowReading, type MethodId } from "@/components/explore/sizing-decision";
 import { Pill, VeliaModalShell } from "@/components/velia/VeliaModalShell";
+import "@/components/velia/method-table.css";
+import "@/components/velia/mobile-modal.css";
+import { SIZING_STATE_KEY, readJson, writeJson } from "@/lib/onehand/resume";
+import { useIsMobile } from "@/lib/onehand/device";
 import { GenderStep } from "@/components/onehand/GenderStep";
 import { type WearTarget } from "@/components/onehand/HandPicker";
 import { OneHandPair } from "@/components/onehand/OneHandPair";
@@ -47,6 +51,16 @@ const PICK_CARDS: { id: MethodId; title: string; sub: string }[] = [
   { id: "kit", title: "Another ring sizing kit", sub: "Another smart ring brand\nor a sizer set" },
   { id: "ring", title: "Measure a ring I own", sub: "Match a circle on screen" },
   { id: "strip", title: "Measure my finger with paper", sub: "Wrap a strip, mark it,\nmeasure on screen" },
+];
+
+type RowId = "known" | "kit" | "camera" | "ring" | "strip";
+/** Fixed order of the result table. "sure" = we trust it, the others can be a mistake. */
+const TABLE_ROWS: { id: RowId; title: string; sub: string; sure: boolean }[] = [
+  { id: "known", title: "Jeweler size", sub: "Size given by a jeweler", sure: true },
+  { id: "kit", title: "Another sizing kit", sub: "Another smart ring brand or sizer set", sure: true },
+  { id: "camera", title: "Camera", sub: "Your photo", sure: false },
+  { id: "ring", title: "A ring I own", sub: "Matched on screen", sure: false },
+  { id: "strip", title: "Paper strip", sub: "Wrapped and measured on screen", sure: false },
 ];
 
 const FIT_LABEL: Record<FlowReading["color"], string> = {
@@ -210,6 +224,9 @@ function StripRuler({
   );
 }
 
+/** the phone guide plays once per page load, before the first question */
+let mobileGuideShown = false;
+
 type Props = {
   onClose: () => void;
   onComplete: (outcome: Outcome) => void;
@@ -243,6 +260,40 @@ export function SizingModal({ onClose, onComplete }: Props) {
   const [stripMm, setStripMm] = useState(57);
   const [stripGuide, setStripGuide] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [picked, setPicked] = useState<RowId | null>(null);
+  const [resume, setResume] = useState(false);
+  // phone: coming back from the methods page re-opens the phone sizes page (same measurement)
+  const [reopen, setReopen] = useState(false);
+  const [pairKey, setPairKey] = useState(0);
+  const mobile = useIsMobile();
+  const [mobileGuide, setMobileGuide] = useState(false);
+  useEffect(() => {
+    if (mobile && !mobileGuideShown && !readJson(SIZING_STATE_KEY)) setMobileGuide(true);
+  }, [mobile]);
+  // measuring with a ring or a paper strip needs a big screen: not offered on a phone
+  const blocked = (id: MethodId) => mobile && (id === "ring" || id === "strip");
+  /** where a method screen returns to: the methods page, or the result table when it was opened with Edit */
+  const [origin, setOrigin] = useState<"hub" | "result">("hub");
+
+  // After a reload (F5 or dev hot reload) come back to the same step with the same QR session.
+  useEffect(() => {
+    const saved = readJson<{ screen: Screen; gender: Gender | null; wear: WearTarget | null; oneHand: HandSide }>(SIZING_STATE_KEY);
+    if (!saved || !saved.gender) return;
+    setGender(saved.gender);
+    setWear(saved.wear);
+    setOneHand(saved.oneHand);
+    if (saved.screen === "pair" && saved.wear) {
+      setOhFinger(saved.wear.finger);
+      setResume(true);
+      setScreen("pair");
+    }
+  }, []);
+
+  useEffect(() => {
+    if (gender && (screen === "gender" || screen === "pair" || screen === "sizes")) {
+      writeJson(SIZING_STATE_KEY, { screen: screen === "sizes" ? "pair" : screen, gender, wear, oneHand });
+    }
+  }, [screen, gender, wear, oneHand]);
 
   useEffect(() => {
     const stored = loadCalibration();
@@ -267,7 +318,8 @@ export function SizingModal({ onClose, onComplete }: Props) {
   const fingerLabel = current ? fingerPhrase(current.hand, current.finger) : "finger";
   const nextAdvice = nextFingerAdvice(picks, idx);
   const hubDecision = decideReadings(readings);
-  const pickMode = aiSize != null;
+  // the methods page always uses the card design, with or without a size from the photo
+  const pickMode = true;
   // A measurement that lands on the same US size as the photo confirms it, whatever the fit label says.
   const confirmed = aiSize != null && readings.some((r) => r.us != null && Number(r.us) === aiSize && !r.belowChart);
   const finishConfirmed = () => {
@@ -278,7 +330,7 @@ export function SizingModal({ onClose, onComplete }: Props) {
     setScreen("result");
   };
   const methodUsed = (card: MethodId) => readings.some((r) => r.id === card);
-  const activeCard: MethodId = methodUsed(pickCard) ? (PICK_CARDS.find((c) => !methodUsed(c.id))?.id ?? pickCard) : pickCard;
+  const activeCard: MethodId = methodUsed(pickCard) || blocked(pickCard) ? (PICK_CARDS.find((c) => !methodUsed(c.id) && !blocked(c.id))?.id ?? pickCard) : pickCard;
   const openPick = (card: MethodId) => {
     openMethod(card);
   };
@@ -297,8 +349,15 @@ export function SizingModal({ onClose, onComplete }: Props) {
     setScreen("hub");
   };
 
-  const openMethod = (id: MethodId) => {
-    if (readings.some((reading) => reading.id === id)) return;
+  const openMethod = (id: MethodId, from: "hub" | "result" = "hub") => {
+    if (blocked(id)) return;
+    setOrigin(from);
+    // Opening a method again edits it: its saved value is put back on screen.
+    const prior = readings.find((reading) => reading.id === id);
+    if (id === "known" && prior?.circMm != null) setKnownMm(Math.min(80, Math.max(40, +prior.circMm.toFixed(1))));
+    if (id === "kit") setKitUs(prior?.enteredUs ?? null);
+    if (id === "ring" && prior?.circMm != null) setDiameterMm(+Math.min(RING_MAX_MM, Math.max(RING_MIN_MM, prior.circMm / Math.PI)).toFixed(1));
+    if (id === "strip" && prior?.circMm != null) setStripMm(Math.min(STRIP_MAX_MM, Math.max(STRIP_MIN_MM, prior.circMm)));
     if (id === "strip") {
       setStripGuide(true);
       return;
@@ -340,37 +399,42 @@ export function SizingModal({ onClose, onComplete }: Props) {
   };
 
   const commit = (reading: FlowReading) => {
-    const list = [...readings.filter((item) => item.id !== reading.id), reading];
-    setReadings(list);
-    // Back on the method page nothing is selected yet: a second click on the same spot must not start another method.
-    setPickTouched(false);
-    if (aiSize != null && reading.us != null && Number(reading.us) === aiSize && !reading.belowChart) {
-      // The photo and this method point to the same size: that is the answer.
-      setCameraMatched(true);
-      setResult({ us: reading.us, okCount: 2 });
-      setMsg(null);
-      setScreen("result");
-      return;
-    }
+    setReadings((list) => [...list.filter((item) => item.id !== reading.id), reading]);
+    // the table on the result screen selects the most reliable method with a size
+    setPicked(null);
     setCameraMatched(false);
-    setMsg(
-      aiSize != null && reading.us != null
-        ? `This method points to US ${reading.us}, your photo said ${aiSize}. Try another method to confirm.`
-        : `Saved: ${readingChip(reading).label}.`,
-    );
     setResult(null);
-    setScreen("hub");
+    setMsg(null);
+    setScreen("result");
   };
 
   const goBack = () => {
-    if (screen === "hub") setScreen(ohSession ? "sizes" : "gender");
-    else if (screen === "kit") setScreen("hub");
+    if (screen === "hub") {
+      if (ohSession && mobile) {
+        // phone: the step before the methods is the phone's Recommended size page (same measurement)
+        setReopen(true);
+        setScreen("pair");
+      } else setScreen(ohSession ? "sizes" : "gender");
+    }
+    else if (screen === "kit") setScreen(readings.length > 0 ? "result" : "hub");
     else if (screen === "result") setScreen("hub");
-    else setScreen("hub");
+    else setScreen(origin);
+  };
+
+  const goPrev = () => {
+    if (screen === "pair") {
+      setPaired(false);
+      setScreen("gender");
+    } else if (screen === "sizes") {
+      setOhSession(null);
+      setPaired(false);
+      setCheckedHands([]);
+      setScreen(mobile ? "pair" : "gender");
+    } else goBack();
   };
 
   const title =
-    screen === "gender" || screen === "pair" || screen === "sizes" || (screen === "hub" && aiSize != null)
+    screen === "gender" || screen === "pair" || screen === "sizes" || screen === "hub"
       ? "Find your size"
       : screen === "kit"
         ? "Sizing kit"
@@ -417,33 +481,43 @@ export function SizingModal({ onClose, onComplete }: Props) {
     setScreen("sizes");
   }, []);
 
-  const confirmSize = () => {
-    const view = ohSession ? sizeRows(ohSession) : null;
-    const row = view?.rows.find((item) => item.finger === ohFinger);
-    if (!view || !row || row.size == null) return;
-    setAiSize(row.size);
-    const saved: CameraSize = {
-      finger: ohFinger,
-      hand: view.hand,
-      gender,
-      size: row.size,
-      display: row.display,
-      at: Date.now(),
-    };
-    setCameraSize(saved);
-    try {
-      window.localStorage.setItem(CAMERA_STORE_KEY, JSON.stringify(saved));
-    } catch {
-      /* storage unavailable: the size still travels with the outcome */
+  const confirmSize = (sessionArg?: OneHandSession, fingerArg?: FingerKey) => {
+    const sess = sessionArg ?? ohSession;
+    const chosen = fingerArg ?? ohFinger;
+    const view = sess ? sizeRows(sess) : null;
+    const row = view?.rows.find((item) => item.finger === chosen);
+    if (!view || !row) return;
+    // A finger without a size can still continue: the methods table then starts with no camera size.
+    if (row.size == null) {
+      setAiSize(null);
+      setCameraSize(null);
+      setComfortFingers([]);
+    } else {
+      setAiSize(row.size);
+      const saved: CameraSize = {
+        finger: chosen,
+        hand: view.hand,
+        gender,
+        size: row.size,
+        display: row.display,
+        at: Date.now(),
+      };
+      setCameraSize(saved);
+      try {
+        window.localStorage.setItem(CAMERA_STORE_KEY, JSON.stringify(saved));
+      } catch {
+        /* storage unavailable: the size still travels with the outcome */
+      }
+      setComfortFingers(
+        view.rows
+          .filter((item) => item.size === row.size && item.finger !== "thumb")
+          .map((item) => item.label.replace(" finger", "").toLowerCase()),
+      );
     }
-    setComfortFingers(
-      view.rows
-        .filter((item) => item.size === row.size && item.finger !== "thumb")
-        .map((item) => item.label.replace(" finger", "").toLowerCase()),
-    );
-    setPicks([{ hand: view.hand, finger: ohFinger === "little" ? "pinky" : ohFinger }]);
+    setPicks([{ hand: view.hand, finger: chosen === "little" ? "pinky" : chosen }]);
     setIdx(0);
     setReadings([]);
+    setPicked(null);
     setCameraMatched(false);
     setResult(null);
     setMsg(null);
@@ -465,6 +539,9 @@ export function SizingModal({ onClose, onComplete }: Props) {
             setOhFinger(wear.finger);
             setCheckedHands([]);
             setPaired(false);
+            setResume(false);
+            setReopen(false);
+            setOhSession(null);
             setScreen("pair");
           }}
         >
@@ -475,7 +552,33 @@ export function SizingModal({ onClose, onComplete }: Props) {
   }
 
   if (screen === "pair" && gender) {
-    body = <OneHandPair gender={gender} hand={oneHand} onConnectedChange={setPaired} onComplete={onPaired} />;
+    body = (
+      <OneHandPair
+        key={`${pairKey}-${reopen ? "reopen" : "new"}`}
+        gender={gender}
+        hand={oneHand}
+        resume={resume}
+        reopenId={reopen && ohSession ? ohSession.id : undefined}
+        initialFinger={ohFinger}
+        onRestart={() => {
+          setOhSession(null);
+          setReopen(false);
+          setPaired(false);
+          setPairKey((n) => n + 1);
+        }}
+        onConnectedChange={setPaired}
+        onComplete={(done, finger) => {
+          if (mobile && finger) {
+            // phone: its own sizes page already picked the finger, go straight to the methods
+            setOhSession(done);
+            setOhFinger(finger);
+            setReopen(false);
+            setCheckedHands((hands) => (hands.includes(oneHand) ? hands : [...hands, oneHand]));
+            confirmSize(done, finger);
+          } else onPaired(done);
+        }}
+      />
+    );
     footer = (
       <div className="velia-f-row">
         <Pill
@@ -493,23 +596,20 @@ export function SizingModal({ onClose, onComplete }: Props) {
   }
 
   if (screen === "sizes" && ohSession) {
-    const otherHand: HandSide = oneHand === "left" ? "right" : "left";
     body = (
       <OneHandSizes
         session={ohSession}
         selected={ohFinger}
         onSelect={setOhFinger}
         wish={wear}
-        onOtherHand={
-          checkedHands.includes(otherHand)
-            ? undefined
-            : () => {
-                setOhSession(null);
-                setPaired(false);
-                setOneHand(otherHand);
-                setScreen("pair");
-              }
-        }
+        onRetake={() => {
+          // try the other hand: gender page again with the other hand and the same finger pre-selected, then the QR code
+          const other: HandSide = oneHand === "left" ? "right" : "left";
+          setWear({ hand: other, finger: wear?.finger ?? ohFinger });
+          setOhSession(null);
+          setPaired(false);
+          setScreen("gender");
+        }}
       />
     );
     footer = (
@@ -521,12 +621,12 @@ export function SizingModal({ onClose, onComplete }: Props) {
             setOhSession(null);
             setPaired(false);
             setCheckedHands([]);
-            setScreen("gender");
+            setScreen(mobile ? "pair" : "gender");
           }}
         >
           Back
         </Pill>
-        <Pill onClick={confirmSize}>Continue</Pill>
+        <Pill onClick={() => confirmSize()}>Continue</Pill>
       </div>
     );
   }
@@ -535,7 +635,12 @@ export function SizingModal({ onClose, onComplete }: Props) {
     body = (
       <div className="velia-page">
         <div className="velia-head">
-          {pickMode && confirmed ? (
+          {aiSize == null ? (
+            <h1 className="velia-h1 oh-long">
+              We couldn&apos;t size your {fingerLabel} from the photo.{" "}
+              <span style={{ color: "var(--blue)" }}>Choose a method to find your size.</span>
+            </h1>
+          ) : pickMode && confirmed ? (
             <h1 className="velia-h1 oh-long">
               Your measurement matches your photo: <span style={{ color: "var(--blue)" }}>size {aiSize}</span> it is. You can finish now, or{" "}
               <span style={{ color: "var(--blue)" }}>double check with another method.</span>
@@ -581,20 +686,15 @@ export function SizingModal({ onClose, onComplete }: Props) {
         </div>
         {msg && !pickMode && <div className="msg blue">{msg}</div>}
         {pickMode ? (
-          <div className="velia-pick" role="radiogroup" aria-label="Method">
+          <div className="velia-pick" role="group" aria-label="Method">
             {PICK_CARDS.map((card) => (
               <button
                 key={card.id}
                 type="button"
-                role="radio"
-                aria-checked={activeCard === card.id}
-                disabled={methodUsed(card.id)}
-                className={`velia-pick-card ${pickTouched && activeCard === card.id ? "on" : ""}`}
-                onClick={() => {
-                  setPickCard(card.id);
-                  setPickTouched(true);
-                }}
-                onDoubleClick={() => openPick(card.id)}
+                disabled={methodUsed(card.id) || blocked(card.id)}
+                title={blocked(card.id) ? "Not available on mobile" : undefined}
+                className="velia-pick-card"
+                onClick={() => openPick(card.id)}
               >
                 <span className={`velia-pick-art ${card.id}`} aria-hidden>
                   {card.id === "known" && (
@@ -620,24 +720,13 @@ export function SizingModal({ onClose, onComplete }: Props) {
                     {card.sub.split("\n").map((line, i) => (
                       <span key={i} className="ln">{line}</span>
                     ))}
+                    {blocked(card.id) && <span className="ln na-note">Not available on mobile</span>}
                   </span>
                 </span>
               </button>
             ))}
           </div>
         ) : null}
-        {!pickMode && readings.length >= 2 && hubDecision.d === "recommend" && (
-          <div className="msg blue">
-            Your recommended size is US {hubDecision.us}. Finish sizing now, or measure with another method.
-          </div>
-        )}
-        {!pickMode && readings.length >= 2 && hubDecision.d === "remeasure" && (
-          <div className="msg amber">
-            {hubDecision.why === "sizes"
-              ? "These readings indicate different US sizes. Remeasure this finger."
-              : "These readings are tied or disagree. Remeasure this finger."}
-          </div>
-        )}
         <div className="velia-methods" hidden={pickMode}>
           {METHODS.map((method) => {
             const saved = readings.find((reading) => reading.id === method.id);
@@ -675,20 +764,10 @@ export function SizingModal({ onClose, onComplete }: Props) {
       <div className="velia-f-row">
         <Pill tone="light" back onClick={goBack}>Back</Pill>
         <div className="velia-f-right">
-          {confirmed && <Pill onClick={finishConfirmed}>Finish</Pill>}
-          {!confirmed && hubDecision.d === "recommend" && (
-            <Pill onClick={() => settle(readings)}>Finish</Pill>
+          {readings.length > 0 && (
+            <Pill tone="light" onClick={() => setScreen("result")}>See my table</Pill>
           )}
-          {!confirmed && hubDecision.d === "remeasure" && (
-            <Pill onClick={() => resetFinger(idx)}>Remeasure</Pill>
-          )}
-          {!confirmed && hubDecision.d === "next" && (
-            <Pill onClick={() => settle(readings)}>{nextAdvice?.action ?? "Next finger"}</Pill>
-          )}
-          {pickMode && (confirmed || hubDecision.d === "more") && PICK_CARDS.some((c) => !methodUsed(c.id)) && (
-            <Pill disabled={!pickTouched} onClick={() => openPick(activeCard)}>Continue</Pill>
-          )}
-          {!(pickMode) && hubDecision.d === "more" && readings.length < 4 && (
+          {!pickMode && readings.length < 4 && (
             <Pill
               onClick={() => {
                 const next = METHODS.find((m) => !readings.some((r) => r.id === m.id));
@@ -710,13 +789,26 @@ export function SizingModal({ onClose, onComplete }: Props) {
           <h1 className="velia-h1">What size did the jeweler give you?</h1>
           <p className="velia-desc">For your {fingerLabel}. Use the circumference in millimetres.</p>
         </div>
-        <div className="velia-known">
-          <button type="button" aria-label="Smaller" className="pill light" style={{ width: 40, padding: 0 }} onClick={() => setKnownMm((v) => Math.max(40, +(v - 0.1).toFixed(1)))}>−</button>
-          <div style={{ minWidth: 120, textAlign: "center" }}>
-            <p className="velia-desc" style={{ margin: 0 }}>Millimetres</p>
-            <p className="velia-h1" style={{ fontSize: 56, lineHeight: 1, marginTop: 8 }}>{knownMm.toFixed(1)}</p>
+        <div className="velia-known" style={{ flexDirection: "column", gap: 28 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 24 }}>
+            <button type="button" aria-label="Smaller" className="pill light" style={{ width: 40, padding: 0 }} onClick={() => setKnownMm((v) => Math.max(40, +(v - 0.1).toFixed(1)))}>−</button>
+            <div style={{ minWidth: 120, textAlign: "center" }}>
+              <p className="velia-desc" style={{ margin: 0 }}>Millimetres</p>
+              <p className="velia-h1" style={{ fontSize: 56, lineHeight: 1, marginTop: 8 }}>{knownMm.toFixed(1)}</p>
+            </div>
+            <button type="button" aria-label="Larger" className="pill light" style={{ width: 40, padding: 0 }} onClick={() => setKnownMm((v) => Math.min(80, +(v + 0.1).toFixed(1)))}>+</button>
           </div>
-          <button type="button" aria-label="Larger" className="pill light" style={{ width: 40, padding: 0 }} onClick={() => setKnownMm((v) => Math.min(80, +(v + 0.1).toFixed(1)))}>+</button>
+          <input
+            type="range"
+            className="velia-range"
+            style={{ width: "min(420px, 80%)" }}
+            min={40}
+            max={80}
+            step={0.1}
+            value={knownMm}
+            onChange={(event) => setKnownMm(+(+event.target.value).toFixed(1))}
+            aria-label="Circumference in millimetres"
+          />
         </div>
       </div>
     );
@@ -804,10 +896,10 @@ export function SizingModal({ onClose, onComplete }: Props) {
         step={0.01}
         value={calScale}
         onChange={setCalScale}
-        onBack={() => setScreen("hub")}
+        onBack={() => setScreen(origin)}
         onContinue={() => {
           persistCalibration();
-          setScreen(pending === "strip" ? "strip" : pending === "ring" ? "ring" : "hub");
+          setScreen(pending === "strip" ? "strip" : pending === "ring" ? "ring" : origin);
         }}
         ariaLabel="Card scale"
       />
@@ -854,7 +946,7 @@ export function SizingModal({ onClose, onComplete }: Props) {
         step={0.1}
         value={diameterMm}
         onChange={setDiameterMm}
-        onBack={() => setScreen("hub")}
+        onBack={() => setScreen(origin)}
         onContinue={() => commit(readingFromCirc("ring", diameterToCircumference(diameterMm)))}
         ariaLabel="Ring inner diameter"
       />
@@ -906,66 +998,137 @@ export function SizingModal({ onClose, onComplete }: Props) {
         step={0.5}
         value={stripMm}
         onChange={setStripMm}
-        onBack={() => setScreen("hub")}
+        onBack={() => setScreen(origin)}
         onContinue={() => commit(readingFromCirc("strip", stripMm))}
         ariaLabel="Strip length"
       />
     );
   }
 
-  if (screen === "result" && result) {
+  if (screen === "result") {
+    const sizeOf = (id: RowId): number | null | undefined => {
+      if (id === "camera") return aiSize;
+      const reading = readings.find((item) => item.id === id);
+      if (!reading) return undefined;
+      return reading.us != null && !reading.belowChart && !reading.tooLarge ? Number(reading.us) : null;
+    };
+    const firstSized = TABLE_ROWS.find((row) => sizeOf(row.id) != null)?.id ?? null;
+    const selId: RowId | null = picked && sizeOf(picked) != null ? picked : firstSized;
+    const selRow = TABLE_ROWS.find((row) => row.id === selId) ?? null;
+    const selSize = selId ? (sizeOf(selId) as number) : null;
+    const sizes = new Set(TABLE_ROWS.map((row) => sizeOf(row.id)).filter((v): v is number => v != null));
+    const anyTried = readings.length > 0;
+    const selReading = readings.find((item) => item.id === selId);
+    const selColor = selReading?.color ?? "green";
+    const loose = selColor === "red";
+    const snug = selColor === "black";
+    const sizedRows = TABLE_ROWS.filter((row) => sizeOf(row.id) != null);
+    const agree = sizedRows.filter((row) => sizeOf(row.id) === selSize).length;
+    const why: Record<RowId, string> = {
+      known: "Jeweler sizing is the most accurate. If you are sure, press Done.",
+      kit: "A real sizer on your finger is highly reliable. If you are sure, press Done.",
+      camera: "Photo estimate, can be inaccurate. To confirm, press Back and add another method.",
+      ring: "Ring match can be inaccurate. To confirm, press Back and add a jeweler or kit size.",
+      strip: "Paper strip can be inaccurate. To confirm, press Back and add a jeweler or kit size.",
+    };
+    const scaleAt = loose ? 2 : snug ? 0 : 1;
     body = (
       <div className="velia-page">
-        <div className={`velia-result ${resultLoose ? "" : "fg"}`}>
+        <div className={`velia-result vt-result ${loose ? "" : "fg"}`}>
           <div className="velia-res">
             <p className="cap">Your Velia size</p>
-            <p className="big">{result.us}</p>
-            <p className="fit">
-              {resultLoose ? "Should feel a little loose. That works." : "Should feel comfortable."}
-            </p>
+            <p className="big">{selSize ?? "–"}</p>
+            <p className="fit">{loose ? "Should feel a little loose. That works." : snug ? "Should feel snug." : "Should feel comfortable."}</p>
             <p className="meta">
-              {cameraMatched && comfortFingers.length > 0
-                ? `${comfortFingers.join(" and ").replace(/^./, (c) => c.toUpperCase())} ${comfortFingers.length > 1 ? "fingers" : "finger"}`
-                : fingerLabel.charAt(0).toUpperCase() + fingerLabel.slice(1)}
+              {fingerLabel.charAt(0).toUpperCase() + fingerLabel.slice(1)}
               {"・"}
-              {cameraMatched
-                ? `${readings.length + 1} of ${readings.length + 1} measurements agree`
-                : `${result.okCount} of ${readings.length} measurements agree`}
+              {selRow ? `${selRow.title}・${agree} of ${sizedRows.length} methods agree` : "No size yet"}
             </p>
           </div>
-          <div className="velia-scale" aria-hidden>
+          {selRow && <p className={`vt-note ${selRow.sure ? "sure" : "risk"} vt-why`}>{why[selRow.id]}</p>}
+          {!selRow && anyTried && <p className="vt-note risk vt-why">No size available from these methods. Press Back to try another.</p>}
+        <div className="vt vt-compact">
+          <div className="vt-table" role="radiogroup" aria-label="Method">
+            <div className="vt-head" aria-hidden>
+              <span>Method</span>
+              <span>Size</span>
+              <span>How sure</span>
+              <span />
+            </div>
+            {TABLE_ROWS.filter((row) => sizeOf(row.id) !== undefined).map((row) => {
+              const size = sizeOf(row.id);
+              const on = row.id === selId;
+              const canPick = size != null;
+              const action = () => {
+                if (row.id === "camera") {
+                  if (ohSession) setScreen("sizes");
+                } else openMethod(row.id, "result");
+              };
+              return (
+                <div
+                  key={row.id}
+                  role="radio"
+                  aria-checked={on}
+                  aria-disabled={!canPick}
+                  tabIndex={0}
+                  className={`vt-row ${on ? "on" : ""} ${canPick ? "" : "none"}`}
+                  onClick={() => canPick && setPicked(row.id)}
+                  onKeyDown={(event) => {
+                    if (canPick && (event.key === "Enter" || event.key === " ")) {
+                      event.preventDefault();
+                      setPicked(row.id);
+                    }
+                  }}
+                >
+                  <span className={`velia-radio vt-radio ${on ? "on" : ""}`} aria-hidden />
+                  <span className="vt-name">
+                    <b>{row.title}</b>
+                    <span>{row.sub}</span>
+                  </span>
+                  {size === undefined ? (
+                    <span className="vt-size dim">Not tried</span>
+                  ) : size === null ? (
+                    <span className="vt-size dim">No size</span>
+                  ) : (
+                    <span className="vt-size">US {size}</span>
+                  )}
+                  {size != null ? (
+                    <span className={`vt-conf ${row.sure ? "sure" : "risk"}`}>{row.sure ? "Very sure" : "Can be a mistake"}</span>
+                  ) : (
+                    <span />
+                  )}
+                  <button
+                    type="button"
+                    className="vt-act"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      action();
+                    }}
+                    aria-label={`${size === undefined ? "Try" : "Edit"} ${row.title}`}
+                  >
+                    {row.id === "camera" ? "Change" : size === undefined ? "Try" : "Edit"}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+          <div className="velia-scale" aria-hidden style={{ marginTop: 20 }}>
             <div className="ln ok" />
             <div className="ln bad" />
-            <div className="halo" style={{ left: `${scaleMarks[scaleMe].at}%` }} />
+            <div className="halo" style={{ left: `${scaleMarks[scaleAt].at}%` }} />
             {scaleMarks.map((mark, index) => (
-              <div
-                key={mark.label}
-                className={`dot ${index === 3 ? "off" : ""}`}
-                style={{ left: `${mark.at}%` }}
-              />
+              <div key={mark.label} className={`dot ${index === 3 ? "off" : ""}`} style={{ left: `${mark.at}%` }} />
             ))}
             {scaleMarks.map((mark, index) => (
               <div
                 key={`lb-${mark.label}`}
-                className={`lb ${index === 0 ? "first" : ""} ${index === 3 ? "last" : ""} ${index === scaleMe ? "me" : ""}`}
+                className={`lb ${index === 0 ? "first" : ""} ${index === 3 ? "last" : ""} ${index === scaleAt ? "me" : ""}`}
                 style={{ left: `${mark.at}%` }}
               >
                 {mark.label}
               </div>
             ))}
-          </div>
-          <div className="velia-why">
-            <img src="/velia/why-ring.svg" alt="" />
-            <div className="tx">
-              <b>Why a bit of room is fine</b>
-              <p>
-                18 sensors sit all around your finger, and Velia reads from the best one each time. It doesn&apos;t need a tight fit.
-              </p>
-            </div>
-          </div>
-          <div className="velia-exchange">
-            <img src="/velia/icon-info.svg" alt="" />
-            <span>If the size isn&apos;t right, your first exchange is free</span>
           </div>
         </div>
       </div>
@@ -974,10 +1137,18 @@ export function SizingModal({ onClose, onComplete }: Props) {
       <div className="velia-f-row">
         <Pill tone="light" back onClick={() => setScreen("hub")}>Back</Pill>
         <div className="velia-f-right">
-          {nextAdvice && (
-            <Pill tone="light" onClick={() => resetFinger(idx + 1)}>{nextAdvice.action}</Pill>
+          {!selRow && anyTried && (
+            <Pill tone="light" onClick={() => setScreen("kit")}>Sizing kit</Pill>
           )}
-          <Pill onClick={() => onComplete({ kind: "size", us: result.us, camera: cameraSize })}>Done</Pill>
+          <Pill
+            disabled={selSize == null}
+            onClick={() => {
+              if (selSize == null) return;
+              onComplete({ kind: "size", us: selSize as AvailableUsSize, camera: cameraSize });
+            }}
+          >
+            Done
+          </Pill>
         </div>
       </div>
     );
@@ -1013,9 +1184,43 @@ export function SizingModal({ onClose, onComplete }: Props) {
     );
   }
 
+  if (mobileGuide && screen === "gender") {
+    body = (
+      <div className="oh-guide">
+        <video
+          className="oh-guide-video portrait"
+          poster="/velia/guide/guide-mobile-poster.jpg"
+          autoPlay
+          muted
+          loop
+          playsInline
+          preload="auto"
+          aria-label="Guide: how to find your ring size on your phone, step by step"
+        >
+          <source src="/velia/guide/guide-mobile.webm" type="video/webm" />
+          <source src="/velia/guide/guide-mobile.mp4" type="video/mp4" />
+        </video>
+        <p className="oh-guide-cap">A 35 second guide to the whole tool. You can skip it at any time.</p>
+        <div className="oh-guide-actions">
+          <button
+            type="button"
+            className="oh-guide-btn"
+            onClick={() => {
+              mobileGuideShown = true;
+              setMobileGuide(false);
+            }}
+          >
+            Skip tutorial
+          </button>
+        </div>
+      </div>
+    );
+    footer = null;
+  }
+
   return (
     <>
-      <VeliaModalShell title={title} step={stepFor(screen, paired)} onClose={onClose} footer={footer}>
+      <VeliaModalShell title={title} step={stepFor(screen, paired)} onClose={onClose} onBack={screen === "gender" ? undefined : goPrev} footer={footer}>
         {body}
       </VeliaModalShell>
       {stripGuide && (

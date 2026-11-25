@@ -9,23 +9,24 @@ export function OneHandSizes({
   selected,
   onSelect,
   wish,
-  onOtherHand,
+  onRetake,
 }: {
   session: OneHandSession;
   selected: FingerKey;
   onSelect: (finger: FingerKey) => void;
   /** the hand and finger the customer originally wanted to wear their Velia on */
   wish?: { hand: HandSide; finger: FingerKey } | null;
-  /** set when the other hand has not been measured yet */
-  onOtherHand?: () => void;
+  /** take a new photo: goes back to choosing gender, hand and finger, then the QR code */
+  onRetake?: () => void;
 }) {
   const view = sizeRows(session);
   if (!view) return null;
   const wishRow = wish ? view.rows.find((row) => row.finger === wish.finger) : undefined;
   const wishFits = wishRow?.size != null;
   const best = view.rows.find((row) => row.bestFit && row.finger !== wish?.finger) ?? view.rows.find((row) => row.size != null && row.finger !== "thumb" && row.finger !== wish?.finger);
-  const otherHand: HandSide = view.hand === "left" ? "right" : "left";
   const wishName = wishRow ? wishRow.label.toLowerCase() : "";
+  const selRow = view.rows.find((row) => row.finger === selected);
+  const selNoSize = selRow != null && selRow.size == null;
   const lowerLabel = (f: FingerKey) => view.rows.find((r) => r.finger === f)?.label.toLowerCase() ?? f;
 
   return (
@@ -35,7 +36,22 @@ export function OneHandSizes({
       </div>
       <div className="oh-list">
         <h1 className="velia-h1">Recommended size</h1>
-        {wishRow && !wishFits && (
+        {selNoSize && selRow && (
+          <div className="oh-advice info" role="status">
+            <h2>We couldn&apos;t size your {selRow.label.toLowerCase()} from the photo</h2>
+            <p>
+              {selRow.note} If you want, we can check your size with other methods. Press Continue to try them.
+            </p>
+            <div className="oh-advice-actions">
+              {onRetake && (
+                <button type="button" onClick={onRetake}>
+                  Try your other hand
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+        {!selNoSize && wishRow && !wishFits && (
           <div className="oh-advice" role="status">
             <h2>
               Your {view.hand} {wishName} is outside our sizes
@@ -47,9 +63,9 @@ export function OneHandSizes({
                   Wear it on your {lowerLabel(best.finger)} · US {best.display}
                 </button>
               )}
-              {onOtherHand && (
-                <button type="button" onClick={onOtherHand}>
-                  Check my {otherHand} hand
+              {onRetake && (
+                <button type="button" onClick={onRetake}>
+                  Try your other hand
                 </button>
               )}
             </div>
@@ -73,8 +89,7 @@ export function OneHandSizes({
                 type="button"
                 role="radio"
                 aria-checked={on}
-                disabled={row.size == null}
-                className={`oh-row ${on ? "on" : ""}`}
+                className={`oh-row ${on ? "on" : ""} ${row.size == null ? "nosize" : ""}`}
                 onClick={() => onSelect(row.finger)}
               >
                 <span className="oh-size">{row.display}</span>

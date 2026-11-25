@@ -1,0 +1,60 @@
+/* "Your size, by method" table (sizing modal) */
+.vt { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+.vt-hint { margin: 0; padding: 10px 14px; border-radius: 14px; background: #eef4ff; color: #0a3fa8; font-size: 13px; line-height: 18px; }
+.vt-table { display: flex; flex-direction: column; gap: 4px; }
+.vt-head, .vt-row { display: grid; grid-template-columns: minmax(0, 1.5fr) 92px minmax(0, 1.1fr) 64px; align-items: center; column-gap: 12px; }
+.vt-head { padding: 0 20px 0 52px; font-size: 12px; line-height: 16px; color: #808080; }
+.vt-row { position: relative; padding: 12px 16px 12px 52px; border-radius: 24px; background: #f3f3f3; cursor: pointer; min-height: 60px; }
+.vt-row.on { background: #fff; box-shadow: inset 0 0 0 1.5px #000; }
+.vt-row.none { cursor: default; }
+.vt-row:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.vt-radio { position: absolute; left: 16px; top: 50%; transform: translateY(-50%); }
+.vt-name { display: flex; flex-direction: column; min-width: 0; }
+.vt-name b { font-size: 14px; line-height: 18px; font-weight: 600; }
+.vt-name span { font-size: 12px; line-height: 16px; color: #808080; }
+.vt-size { font-size: 20px; line-height: 24px; font-weight: 500; letter-spacing: -.4px; }
+.vt-size.dim { font-size: 13px; line-height: 16px; font-weight: 400; letter-spacing: 0; color: #808080; }
+.vt-conf { display: inline-flex; align-items: center; justify-content: center; padding: 3px 10px; border-radius: 999px; font-size: 12px; line-height: 16px; font-weight: 500; text-align: center; width: fit-content; }
+.vt-conf.sure { background: var(--blue-bg); color: var(--blue); }
+.vt-conf.risk { background: #fff2dc; color: #8a5a00; }
+.vt-act { height: 32px; border-radius: 16px; background: #fff; border: 1px solid #d9d9d9; font-size: 13px; font-weight: 500; cursor: pointer; }
+.vt-row.on .vt-act { background: #f3f3f3; }
+.vt-act:hover { border-color: #000; }
+.vt-note { margin: 0; padding: 10px 14px; border-radius: 14px; font-size: 13px; line-height: 18px; }
+.vt-note.sure { background: var(--blue-bg); color: var(--blue); }
+.vt-note.risk { background: #fff2dc; color: #8a5a00; }
+.vt-note.diff { background: #f3f3f3; color: #333; }
+
+/* size + message stay fixed; only the method list scrolls, the scale stays at the bottom */
+.vt-result { overflow: hidden; padding-bottom: 0; gap: 10px; }
+.vt-result > * { flex: none; }
+.vt-result .vt { width: 100%; flex: 1 1 0; min-height: 0; overflow-y: auto; scrollbar-width: none; }
+.vt-result .vt::-webkit-scrollbar { display: none; }
+.vt-result .velia-res { width: 100%; }
+.vt-result .velia-scale { margin-top: 8px !important; }
+.vt-why { width: 100%; box-sizing: border-box; text-align: left; flex: none; }
+.vt-compact .vt-row { min-height: 48px; padding-top: 8px; padding-bottom: 8px; }
+.vt-compact .vt-name span { display: none; }
+.vt-compact .vt-row:focus-visible { outline-offset: -2px; }
+/* the old size screen pins the number with position:absolute; here it flows above the table */
+.velia-result.vt-result .velia-res { position: static; top: auto; left: auto; right: auto; }
+.velia-result.vt-result .velia-res .big { font-size: 64px; line-height: 64px; letter-spacing: -1.92px; margin-top: 8px; }
+.velia-result.vt-result .velia-res .fit { font-size: 18px; line-height: 24px; }
+.velia-result.vt-result .velia-scale { position: relative; left: auto; top: auto; width: 100%; max-width: 650px; margin: 8px 0 0 !important; }
+.velia-result.vt-result .velia-scale .ln.ok { width: 67.4%; }
+.velia-result.vt-result .velia-scale .ln.bad { left: 67.4%; width: 32.6%; }
+
+/* same height for every message and the method list centred between the number and the scale */
+.vt-result .vt-why { min-height: 44px; display: flex; align-items: center; }
+.vt-result .vt { justify-content: center; }
+.vt-result .vt-why { justify-content: center; text-align: center; }
+/* five methods fit without scrolling */
+.vt-compact .vt-table { gap: 3px; }
+.vt-compact .vt-head { display: none; }
+.vt-compact .vt-row { min-height: 40px; padding: 3px 14px 3px 48px; border-radius: 20px; grid-template-columns: minmax(0, 1.5fr) 72px minmax(0, 1.1fr) 60px; }
+.vt-compact .vt-radio { left: 14px; }
+.vt-compact .vt-size { font-size: 16px; line-height: 20px; }
+.vt-compact .vt-name b { font-size: 13px; }
+.vt-compact .vt-conf { font-size: 11px; padding: 2px 8px; }
+.vt-compact .vt-act { height: 28px; font-size: 12px; }
+.vt-result .vt { padding: 2px; }
